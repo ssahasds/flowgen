@@ -24,12 +24,12 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
-    pub fn with_credentials_path(mut self, credentials_path: String) -> ClientBuilder {
+    pub fn with_credentials_path(&mut self, credentials_path: String) -> &mut ClientBuilder {
         self.credentials_path = credentials_path;
         self
     }
 
-    pub fn build(self) -> Result<Client, Box<dyn std::error::Error>> {
+    pub fn build(&mut self) -> Result<Client, Box<dyn std::error::Error>> {
         let creds = fs::read_to_string(&self.credentials_path)?;
         let client: Client = serde_json::from_str(&creds)?;
         Ok(client)
