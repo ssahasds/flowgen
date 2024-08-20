@@ -1,7 +1,7 @@
 use flowgen_google::storage::v2::{storage_client::StorageClient, ListBucketsRequest};
 use gcp_auth::{CustomServiceAccount, TokenProvider};
 use std::path::PathBuf;
-use tonic::{metadata::MetadataValue, transport::ClientTlsConfig};
+use tonic::metadata::MetadataValue;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -11,10 +11,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gcp_credentials = std::env::var("GCP_CREDENTIALS")
         .map_err(|_| "GCP_CREDENTIALS are required.".to_string())?;
 
-    // Setup required config for the http client.
-    let tls_config = ClientTlsConfig::new();
-    let channel = tonic::transport::Channel::from_static(flowgen_google::storage::ENDPOINT)
-        .tls_config(tls_config)?
+    // Setup Flowgen client.
+    let flowgen_client = flowgen::core::Client::new()
+        .with_endpoint(format!("{0}:443", flowgen_google::storage::ENDPOINT))
+        .build()?
         .connect()
         .await?;
 
@@ -31,18 +31,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let x_goog: MetadataValue<_> = format!("project={0}", project_path).parse()?;
 
     // Setup Storage Client.
-    let mut client = StorageClient::with_interceptor(channel, move |mut req: tonic::Request<()>| {
-        req.metadata_mut()
-            .insert("authorization", auth_header.clone());
-        req.metadata_mut()
-            .insert("x-goog-request-params", x_goog.clone());
-        Ok(req)
-    });
+    let mut client =
+        StorageClient::with_interceptor(flowgen_client, move |mut req: tonic::Request<()>| {
+            req.metadata_mut()
+                .insert("authorization", auth_header.clone());
+            req.metadata_mut()
+                .insert("x-goog-request-params", x_goog.clone());
+            Ok(req)
+        });
 
     // List all buckets in the project.
     let list_buckets_resp = client
         .list_buckets(tonic::Request::new(ListBucketsRequest {
-            parent: String::from(project_path),
+            parent: project_path,
             ..Default::default()
         }))
         .await?;

@@ -11,6 +11,7 @@ name = "flowgen_salesforce"
 path = "src/lib.rs"
 
 [dependencies]
+oauth2 = "4.4.2"
 prost = "0.12.3"
 prost-types = "0.12.3"
 serde = { version = "1.0.195", features = ["derive"] }

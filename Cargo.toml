@@ -6,6 +6,7 @@ exclude = [".cargo"]
 [workspace.dependencies]
 flowgen_salesforce = { path = "components/salesforce" }
 flowgen_google = { path = "components/google" }
+flowgen = { path = "flowgen" }
 
 [workspace.package]
 version = "0.0.1"

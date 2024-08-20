@@ -1,3 +1,8 @@
+use oauth2::basic::{BasicClient, BasicTokenType};
+use oauth2::reqwest::async_http_client;
+use oauth2::{
+    AuthUrl, ClientId, ClientSecret, EmptyExtraTokenFields, StandardTokenResponse, TokenUrl,
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -10,11 +15,29 @@ pub struct Client {
 }
 
 impl Client {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> ClientBuilder {
         ClientBuilder::default()
     }
-    pub fn connect(&self) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
+    pub async fn connect(
+        &self,
+    ) -> Result<
+        StandardTokenResponse<EmptyExtraTokenFields, BasicTokenType>,
+        Box<dyn std::error::Error>,
+    > {
+        let auth_client = BasicClient::new(
+            ClientId::new(self.client_id.clone()),
+            Some(ClientSecret::new(self.client_secret.clone())),
+            AuthUrl::new(self.auth_url.clone())?,
+            Some(TokenUrl::new(self.token_url.clone())?),
+        );
+
+        let token_result = auth_client
+            .exchange_client_credentials()
+            .request_async(async_http_client)
+            .await?;
+
+        Ok(token_result)
     }
 }
 
@@ -24,7 +47,7 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
-    pub fn with_credentials_path(&mut self, credentials_path: String) -> &mut ClientBuilder {
+    pub fn with_credentials_path(&mut self, credentials_path: String) -> &mut Self {
         self.credentials_path = credentials_path;
         self
     }
