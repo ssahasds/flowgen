@@ -1,15 +1,15 @@
 use flowgen_google::storage::v2::{storage_client::StorageClient, ListBucketsRequest};
 use gcp_auth::{CustomServiceAccount, TokenProvider};
+use std::env;
 use std::path::PathBuf;
 use tonic::{metadata::AsciiMetadataValue, Request};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read required env vars.
-    let project_id =
-        std::env::var("PROJECT_ID").map_err(|_| "PROJECT_ID is required".to_string())?;
-    let gcp_credentials = std::env::var("GCP_CREDENTIALS")
-        .map_err(|_| "GCP_CREDENTIALS are required.".to_string())?;
+    let project_id = env::var("PROJECT_ID").map_err(|_| "PROJECT_ID is required".to_string())?;
+    let gcp_credentials =
+        env::var("GCP_CREDENTIALS").map_err(|_| "GCP_CREDENTIALS are required.".to_string())?;
 
     // Setup Flowgen client.
     let flowgen = flowgen::core::ServiceBuilder::new()

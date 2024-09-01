@@ -6,8 +6,8 @@ use tokio_stream::StreamExt;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup environment variables.
-    let sfdc_credentials = env!("SALESFORCE_CREDENTIALS");
-    let sfdc_topic_name = env!("SALESFORCE_TOPIC_NAME");
+    let sfdc_credentials = env::var("SALESFORCE_CREDENTIALS").unwrap();
+    let sfdc_topic_name = env::var("SALESFORCE_TOPIC_NAME").unwrap();
 
     // Setup Flowgen client.
     let flowgen = flowgen::core::ServiceBuilder::new()
