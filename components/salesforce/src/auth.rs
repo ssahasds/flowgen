@@ -61,7 +61,7 @@ pub struct Client {
 impl Client {
     /// Authorizes to Salesforce based on provided credentials.
     /// It then exchanges them for auth_token and refresh_token or returns error.
-    pub async fn connect(mut self) -> Result<Self, Error> {
+    pub async fn connect(mut self) -> Result<Client, Error> {
         let token_result = self
             .oauth2_client
             .exchange_client_credentials()
@@ -94,9 +94,9 @@ impl ClientBuilder {
 
     /// Generates a new client or return error in case
     /// provided credentials path is not valid.
-    pub fn build(&self) -> Result<Client, Error> {
+    pub fn build(&mut self) -> Result<Client, Error> {
         let credentials_string = fs::read_to_string(&self.credentials_path)
-            .map_err(|e| Error::OpenFile(e, self.credentials_path.clone()))?;
+            .map_err(|e| Error::OpenFile(e, self.credentials_path.to_owned()))?;
         let credentials: Credentials =
             serde_json::from_str(&credentials_string).map_err(Error::ParseCredentials)?;
         let oauth2_client = BasicClient::new(
@@ -148,6 +148,25 @@ mod tests {
             .build();
         let _ = fs::remove_file(path);
         assert!(matches!(client, Err(Error::ParseCredentials(..))));
+    }
+
+    #[test]
+    fn test_build_with_invalid_url() {
+        let creds: &str = r#"
+            {
+                "client_id": "some_client_id",
+                "client_secret": "some_client_secret", 
+                "instance_url": "mydomain.salesforce.com", 
+                "tenant_id": "some_tenant_id"
+            }"#;
+        let mut path = PathBuf::new();
+        path.push("invalid_url_credentials.json");
+        let _ = fs::write(path.clone(), creds);
+        let client = ClientBuilder::new()
+            .with_credentials_path(path.clone())
+            .build();
+        let _ = fs::remove_file(path);
+        assert!(matches!(client, Err(Error::ParseUrl(..))));
     }
 
     #[test]

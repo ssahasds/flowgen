@@ -2,30 +2,29 @@
 /// License, v. 2.0. If a copy of the MPL was not distributed with this
 /// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("Endpoint not available")]
-    EndpointNotAvailable(),
-}
+pub enum Error {}
 
 #[derive(Debug)]
 pub struct Service {
-    endpoint: String,
+    endpoint: Option<String>,
     pub channel: Option<tonic::transport::Channel>,
 }
 
 impl Service {
     pub async fn connect(mut self) -> Result<Service, Box<dyn std::error::Error>> {
-        let tls_config = tonic::transport::ClientTlsConfig::new();
-        let channel = tonic::transport::Channel::from_shared(self.endpoint.clone())?
-            .tls_config(tls_config)?
-            .connect()
-            .await?;
-        self.channel = Some(channel);
+        if let Some(endpoint) = self.endpoint.take() {
+            let tls_config = tonic::transport::ClientTlsConfig::new();
+            let channel = tonic::transport::Channel::from_shared(endpoint)?
+                .tls_config(tls_config)?
+                .connect()
+                .await?;
+            self.channel = Some(channel);
+        }
         Ok(self)
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ServiceBuilder {
     endpoint: Option<String>,
 }
@@ -43,14 +42,9 @@ impl ServiceBuilder {
         self
     }
 
-    pub fn build(&self) -> Result<Service, Error> {
-        let endpoint = self
-            .endpoint
-            .as_ref()
-            .ok_or_else(Error::EndpointNotAvailable)?;
-
+    pub fn build(&mut self) -> Result<Service, Error> {
         Ok(Service {
-            endpoint: endpoint.to_string(),
+            endpoint: self.endpoint.take(),
             channel: None,
         })
     }

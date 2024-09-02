@@ -109,7 +109,7 @@ impl ContextBuilder {
         self
     }
 
-    /// Generates a new PubSub Context that allow for interacting with Salesforce PubSub API..
+    /// Generates a new PubSub Context that allow for interacting with Salesforce PubSub API.
     pub fn build(&self) -> Result<Context, Error> {
         let client = self.client.as_ref().ok_or_else(Error::ClientMissing)?;
 
@@ -147,5 +147,42 @@ impl ContextBuilder {
         );
 
         Ok(Context { pubsub })
+    }
+}
+#[cfg(test)]
+mod tests {
+
+    use std::{fs, path::PathBuf};
+
+    use auth::ClientBuilder;
+
+    use super::*;
+
+    #[test]
+    fn test_build_missing_client() {
+        let service = flowgen::core::ServiceBuilder::new().build().unwrap();
+        let client = ContextBuilder::new(service).build();
+        assert!(matches!(client, Err(Error::ClientMissing(..))));
+    }
+    #[test]
+    fn test_build_missing_token() {
+        let service = flowgen::core::ServiceBuilder::new().build().unwrap();
+        let creds: &str = r#"
+            {
+                "client_id": "some_client_id",
+                "client_secret": "some_client_secret", 
+                "instance_url": "https://mydomain.salesforce.com", 
+                "tenant_id": "some_tenant_id"
+            }"#;
+        let mut path = PathBuf::new();
+        path.push("credentials.json");
+        let _ = fs::write(path.clone(), creds);
+        let client = ClientBuilder::new()
+            .with_credentials_path(path.clone())
+            .build()
+            .unwrap();
+        let _ = fs::remove_file(path);
+        let pubsub = ContextBuilder::new(service).with_client(client).build();
+        assert!(matches!(pubsub, Err(Error::TokenResponseMissing(..))));
     }
 }
