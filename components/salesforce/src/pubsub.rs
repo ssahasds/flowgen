@@ -79,6 +79,16 @@ impl Context {
             .map_err(Error::RPCFailed)
     }
 
+    pub async fn publish(
+        &mut self,
+        request: eventbus::v1::PublishRequest,
+    ) -> Result<tonic::Response<eventbus::v1::PublishResponse>, Error> {
+        self.pubsub
+            .publish(tonic::Request::new(request))
+            .await
+            .map_err(Error::RPCFailed)
+    }
+
     pub async fn subscribe(
         &mut self,
         request: eventbus::v1::FetchRequest,
