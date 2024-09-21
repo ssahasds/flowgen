@@ -1,3 +1,4 @@
+use flowgen::client::Client;
 use flowgen_salesforce::eventbus::v1::{FetchRequest, SchemaRequest, TopicRequest};
 use std::env;
 use tokio::sync::mpsc;
@@ -10,21 +11,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sfdc_topic_name = env::var("SALESFORCE_TOPIC_NAME").unwrap();
 
     // Setup Flowgen client.
-    let flowgen = flowgen::core::ServiceBuilder::new()
+    let flowgen = flowgen::service::Builder::new()
         .with_endpoint(format!("{0}:443", flowgen_salesforce::eventbus::ENDPOINT))
         .build()?
         .connect()
         .await?;
 
-    // Connect to Salesforce and get token response.
-    let sfdc_client = flowgen_salesforce::auth::ClientBuilder::new()
+    // Connect to Salesforce and authenticate.
+    let sfdc_client = flowgen_salesforce::auth::Builder::new()
         .with_credentials_path(sfdc_credentials.to_string().into())
         .build()?
         .connect()
         .await?;
 
     // Get PubSub context.
-    let mut pubsub = flowgen_salesforce::pubsub::ContextBuilder::new(flowgen)
+    let mut pubsub = flowgen_salesforce::pubsub::Builder::new(flowgen)
         .with_client(sfdc_client)
         .build()?;
 
@@ -52,31 +53,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = pubsub
         .subscribe(FetchRequest {
             topic_name: sfdc_topic_name.to_owned(),
-            num_requested: 1,
+            num_requested: 200,
             ..Default::default()
         })
         .await?
         .into_inner();
 
     // Setup channel.
-    let (tx, mut rx) = mpsc::channel(1);
+    let (tx, mut rx) = mpsc::channel(200);
     tokio::spawn(async move {
         while let Some(received) = stream.next().await {
-            let event = received
-                .unwrap()
-                .events
-                .into_iter()
-                .next()
-                .unwrap()
-                .event
-                .unwrap();
-            tx.send(event).await.unwrap();
+            match received {
+                Ok(fr) => {
+                    for event in fr.events {
+                        if let Err(e) = tx.send(event).await {
+                            eprintln!("error sending event: {}", e);
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("error receiving events: {}", e);
+                    break;
+                }
+            }
         }
     });
 
     // Process stream of events.
-    while let Some(event) = rx.recv().await {
-        println!("{:?}", event);
+    while let Some(ce) = rx.recv().await {
+        if let Some(pe) = ce.event {
+            println!("{:?}", pe.id);
+        }
     }
     Ok(())
 }

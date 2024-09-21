@@ -53,11 +53,6 @@ pub struct Context {
         >,
     >,
 }
-fn fetch_requests_iter(
-    request: eventbus::v1::FetchRequest,
-) -> impl tokio_stream::Stream<Item = eventbus::v1::FetchRequest> {
-    tokio_stream::iter(1..usize::MAX).map(move |_| request.to_owned())
-}
 
 impl Context {
     pub async fn get_topic(
@@ -94,27 +89,62 @@ impl Context {
         request: eventbus::v1::FetchRequest,
     ) -> Result<tonic::Response<tonic::codec::Streaming<eventbus::v1::FetchResponse>>, Error> {
         self.pubsub
-            .subscribe(fetch_requests_iter(request).throttle(std::time::Duration::from_millis(100)))
+            .subscribe(
+                tokio_stream::iter(1..usize::MAX)
+                    .map(move |_| request.to_owned())
+                    .throttle(std::time::Duration::from_millis(10)),
+            )
+            .await
+            .map_err(Error::RPCFailed)
+    }
+
+    pub async fn managed_subscribe(
+        &mut self,
+        request: eventbus::v1::ManagedFetchRequest,
+    ) -> Result<tonic::Response<tonic::codec::Streaming<eventbus::v1::ManagedFetchResponse>>, Error>
+    {
+        self.pubsub
+            .managed_subscribe(
+                tokio_stream::iter(1..usize::MAX)
+                    .map(move |_| request.to_owned())
+                    .throttle(std::time::Duration::from_millis(10)),
+            )
+            .await
+            .map_err(Error::RPCFailed)
+    }
+
+    pub async fn publish_stream(
+        &mut self,
+        request: eventbus::v1::PublishRequest,
+    ) -> Result<tonic::Response<tonic::codec::Streaming<eventbus::v1::PublishResponse>>, Error>
+    {
+        self.pubsub
+            .publish_stream(
+                tokio_stream::iter(1..usize::MAX)
+                    .map(move |_| request.to_owned())
+                    .throttle(std::time::Duration::from_millis(10)),
+            )
             .await
             .map_err(Error::RPCFailed)
     }
 }
+
 /// Used to store configure PubSub Context.
-pub struct ContextBuilder {
+pub struct Builder {
     client: Option<auth::Client>,
-    service: flowgen::core::Service,
+    service: flowgen::service::Client,
 }
 
-impl ContextBuilder {
+impl Builder {
     // Creates a new instance of ContectBuilder.
-    pub fn new(service: flowgen::core::Service) -> Self {
-        ContextBuilder {
+    pub fn new(service: flowgen::service::Client) -> Self {
+        Builder {
             client: None,
             service,
         }
     }
     /// Pass the Salesforce OAuth client.
-    pub fn with_client(&mut self, client: auth::Client) -> &mut ContextBuilder {
+    pub fn with_client(&mut self, client: auth::Client) -> &mut Builder {
         self.client = Some(client);
         self
     }
@@ -164,19 +194,17 @@ mod tests {
 
     use std::{fs, path::PathBuf};
 
-    use auth::ClientBuilder;
-
     use super::*;
 
     #[test]
     fn test_build_missing_client() {
-        let service = flowgen::core::ServiceBuilder::new().build().unwrap();
-        let client = ContextBuilder::new(service).build();
+        let service = flowgen::service::Builder::new().build().unwrap();
+        let client = Builder::new(service).build();
         assert!(matches!(client, Err(Error::ClientMissing(..))));
     }
     #[test]
     fn test_build_missing_token() {
-        let service = flowgen::core::ServiceBuilder::new().build().unwrap();
+        let service = flowgen::service::Builder::new().build().unwrap();
         let creds: &str = r#"
             {
                 "client_id": "some_client_id",
@@ -187,12 +215,12 @@ mod tests {
         let mut path = PathBuf::new();
         path.push("credentials.json");
         let _ = fs::write(path.clone(), creds);
-        let client = ClientBuilder::new()
+        let client = auth::Builder::new()
             .with_credentials_path(path.clone())
             .build()
             .unwrap();
         let _ = fs::remove_file(path);
-        let pubsub = ContextBuilder::new(service).with_client(client).build();
+        let pubsub = Builder::new(service).with_client(client).build();
         assert!(matches!(pubsub, Err(Error::TokenResponseMissing(..))));
     }
 }
