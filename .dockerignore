@@ -3,5 +3,6 @@ docker
 .gitignore
 .gitlab-ci.yml
 .git
+.gitmodules
 scripts
 target
