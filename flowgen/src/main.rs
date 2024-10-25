@@ -10,7 +10,7 @@ async fn main() {
     // Setup environment variables
     let config_path = env::var("CONFIG_PATH").expect("env variable CONFIG_PATH should be set");
 
-    // Run salesforce event relay service with a provided config.
+    // Run flowgen service with a provided config.
     flowgen::service::Builder::new(config_path.into())
         .build()
         .unwrap_or_else(|err| {

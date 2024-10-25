@@ -1,8 +1,9 @@
 .cargo
-.deploy
 docker
 .gitignore
 .gitlab-ci.yml
+.git
+.gitmodules
+scripts
+examples
 target
-go.mod
-go.sum
