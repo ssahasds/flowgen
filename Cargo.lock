@@ -542,9 +542,9 @@ name = "examples"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "flowgen_core 0.0.1",
+ "flowgen_core",
  "flowgen_google",
- "flowgen_salesforce 0.0.1",
+ "flowgen_salesforce",
  "futures-util",
  "gcp_auth",
  "oauth2",
@@ -593,8 +593,8 @@ dependencies = [
  "async-nats",
  "bincode",
  "bytes",
- "flowgen_core 0.0.1 (git+https://gitlab.com/connve/platform/flowgen.git)",
- "flowgen_salesforce 0.0.1 (git+https://gitlab.com/connve/platform/flowgen.git)",
+ "flowgen_core",
+ "flowgen_salesforce",
  "futures",
  "futures-util",
  "oauth2",
@@ -624,16 +624,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "flowgen_core"
-version = "0.0.1"
-source = "git+https://gitlab.com/connve/platform/flowgen.git#59bbf7479cbb945a4dcbacb9689496f45a14be79"
-dependencies = [
- "thiserror",
- "tonic",
- "url",
-]
-
-[[package]]
 name = "flowgen_google"
 version = "0.0.1"
 dependencies = [
@@ -654,29 +644,7 @@ name = "flowgen_salesforce"
 version = "0.0.1"
 dependencies = [
  "bytes",
- "flowgen_core 0.0.1",
- "futures-util",
- "oauth2",
- "prost",
- "prost-types",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tonic",
- "tonic-build",
- "url",
-]
-
-[[package]]
-name = "flowgen_salesforce"
-version = "0.0.1"
-source = "git+https://gitlab.com/connve/platform/flowgen.git#59bbf7479cbb945a4dcbacb9689496f45a14be79"
-dependencies = [
- "bytes",
- "flowgen_core 0.0.1 (git+https://gitlab.com/connve/platform/flowgen.git)",
+ "flowgen_core",
  "futures-util",
  "oauth2",
  "prost",
