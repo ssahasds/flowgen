@@ -1536,6 +1536,7 @@ dependencies = [
  "async-nats",
  "bincode",
  "bytes",
+ "csv",
  "deltalake",
  "flowgen",
  "flowgen_core",
@@ -1626,6 +1627,7 @@ dependencies = [
  "bytes",
  "deltalake",
  "flowgen_core",
+ "flowgen_nats",
  "flowgen_salesforce",
  "futures",
  "futures-util",
@@ -1652,6 +1654,28 @@ version = "0.0.1"
 dependencies = [
  "thiserror",
  "tonic",
+ "url",
+]
+
+[[package]]
+name = "flowgen_nats"
+version = "0.0.1"
+dependencies = [
+ "async-nats",
+ "bytes",
+ "flowgen_core",
+ "futures-util",
+ "oauth2",
+ "prost",
+ "prost-types",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic",
+ "tonic-build",
  "url",
 ]
 

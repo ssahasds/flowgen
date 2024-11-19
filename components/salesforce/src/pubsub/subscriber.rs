@@ -1,6 +1,5 @@
 use super::eventbus::v1::{FetchRequest, FetchResponse, TopicInfo, TopicRequest};
 use flowgen_core::client::Client;
-use futures_util::future::TryJoinAll;
 use std::sync::Arc;
 use tokio::{
     sync::{
@@ -89,13 +88,6 @@ impl Subscriber {
             });
             async_task_list.push(subscribe_task);
         }
-
-        // // Run all async tasks.
-        // async_task_list
-        //     .into_iter()
-        //     .collect::<TryJoinAll<_>>()
-        //     .await
-        //     .map_err(Error::TokioJoin)?;
 
         Ok(async_task_list)
     }

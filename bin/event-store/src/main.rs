@@ -1,3 +1,4 @@
+use csv::Reader;
 use deltalake::arrow::{
     array::{Int32Array, StringArray, TimestampMicrosecondArray},
     datatypes::{DataType as ArrowDataType, Field, Schema as ArrowSchema, TimeUnit},
@@ -27,79 +28,75 @@ use std::sync::Arc;
 fn get_table_columns() -> Vec<StructField> {
     vec![
         StructField::new(
-            String::from("int"),
-            DataType::Primitive(PrimitiveType::Integer),
+            String::from("id"),
+            DataType::Primitive(PrimitiveType::String),
             false,
         ),
-        StructField::new(
-            String::from("string"),
-            DataType::Primitive(PrimitiveType::String),
-            true,
-        ),
-        StructField::new(
-            String::from("timestamp"),
-            DataType::Primitive(PrimitiveType::TimestampNtz),
-            true,
-        ),
+        // StructField::new(
+        //     String::from("string"),
+        //     DataType::Primitive(PrimitiveType::String),
+        //     true,
+        // ),
+        // StructField::new(
+        //     String::from("timestamp"),
+        //     DataType::Primitive(PrimitiveType::TimestampNtz),
+        //     true,
+        // ),
     ]
 }
 
-fn get_table_batches() -> RecordBatch {
+fn get_table_batches(mut rdr: Reader<std::fs::File>) -> RecordBatch {
     let schema = Arc::new(ArrowSchema::new(vec![
-        Field::new("int", ArrowDataType::Int32, false),
-        Field::new("string", ArrowDataType::Utf8, true),
-        Field::new(
-            "timestamp",
-            ArrowDataType::Timestamp(TimeUnit::Microsecond, None),
-            true,
-        ),
+        Field::new("id", ArrowDataType::Utf8, false),
+        // Field::new("string", ArrowDataType::Utf8, true),
+        // Field::new(
+        //     "timestamp",
+        //     ArrowDataType::Timestamp(TimeUnit::Microsecond, None),
+        //     true,
+        // ),
     ]));
 
-    let int_values = Int32Array::from(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    let str_values = StringArray::from(vec!["A", "B", "A", "B", "A", "A", "A", "B", "B", "A", "A"]);
-    let ts_values = TimestampMicrosecondArray::from(vec![
-        1000000012, 1000000012, 1000000012, 1000000012, 500012305, 500012305, 500012305, 500012305,
-        500012305, 500012305, 500012305,
-    ]);
-    RecordBatch::try_new(
-        schema,
-        vec![
-            Arc::new(int_values),
-            Arc::new(str_values),
-            Arc::new(ts_values),
-        ],
-    )
-    .unwrap()
+    let mut id_vec = Vec::new();
+    for result in rdr.records() {
+        let record = result.unwrap();
+        let id: &str = &record[0];
+        id_vec.push(id.to_string());
+        println!("{:?}", record);
+    }
+
+    RecordBatch::try_new(schema, vec![Arc::new(StringArray::from(id_vec))]).unwrap()
 }
 
 #[tokio::main]
 async fn main() {
-    // // Create a delta operations client pointing at an un-initialized location.
-    // let ops = if let Ok(table_uri) = std::env::var("TABLE_URI") {
-    //     DeltaOps::try_from_uri(table_uri).await.unwrap()
-    // } else {
-    //     DeltaOps::try_from_uri("/tmp/test").await.unwrap()
-    // };
+    let mut rdr: Reader<std::fs::File> = Reader::from_path("/tmp/account.csv").unwrap();
 
-    // let table = ops
-    //     .create()
-    //     .with_columns(get_table_columns())
-    //     .with_partition_columns(["timestamp"])
-    //     .with_table_name("account")
-    //     .with_comment("A table to show how delta-rs works")
-    //     .await
-    //     .unwrap();
+    let ops = if let Ok(table_uri) = std::env::var("TABLE_URI") {
+        DeltaOps::try_from_uri(table_uri).await.unwrap()
+    } else {
+        DeltaOps::try_from_uri("/tmp/delta/saleforce.account")
+            .await
+            .unwrap()
+    };
 
-    // let writer_properties = WriterProperties::builder()
-    //     .set_compression(Compression::ZSTD(ZstdLevel::try_new(3).unwrap()))
-    //     .build();
+    let table = ops
+        .create()
+        .with_columns(get_table_columns())
+        .with_table_name("salesforce.account")
+        .with_comment("Salesforce Account object store.")
+        .await
+        .unwrap();
 
-    // let batch = get_table_batches();
-    // let table = DeltaOps(table)
-    //     .write(vec![batch.clone()])
-    //     .with_writer_properties(writer_properties)
-    //     .await
-    //     .unwrap();
+    let writer_properties = WriterProperties::builder()
+        .set_compression(Compression::ZSTD(ZstdLevel::try_new(3).unwrap()))
+        .build();
+
+    let batch = get_table_batches(rdr);
+    let table = DeltaOps(table)
+        .write(vec![batch.clone()])
+        .with_writer_properties(writer_properties)
+        .await
+        .unwrap();
 
     // // Install global log collector.
     // tracing_subscriber::fmt::init();

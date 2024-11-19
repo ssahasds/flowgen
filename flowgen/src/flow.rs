@@ -59,15 +59,22 @@ impl Flow {
             .await
             .map_err(Error::FlowgenService)?;
 
+        // Get cloned version of the config.
         let config = self.config.clone();
-        let config::Source::salesforce_pubsub(source_config) = config.flow.source;
-        let subscriber =
-            flowgen_salesforce::pubsub::subscriber::Builder::new(flowgen_service, source_config)
+
+        // Setup source subscribers.
+        match config.flow.source {
+            config::Source::salesforce_pubsub(source_config) => {
+                let subscriber = flowgen_salesforce::pubsub::subscriber::Builder::new(
+                    flowgen_service,
+                    source_config,
+                )
                 .build()
                 .await
                 .unwrap();
-        self.source = Some(Source::salesforce_pubsub(subscriber));
-
+                self.source = Some(Source::salesforce_pubsub(subscriber));
+            }
+        }
         // Setup NATS client and stream.
         // let nats_seed = fs::read_to_string(nats_credentials).await?;
         // let nats_client = async_nats::ConnectOptions::with_nkey(nats_seed)

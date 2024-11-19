@@ -1,16 +1,14 @@
-//! This Source Code Form is subject to the terms of the Mozilla Public
-//! License, v. 2.0. If a copy of the MPL was not distributed with this
-//! file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("An error resulting from a failed attempt to construct a URI")]
     InvalidUri(#[source] tonic::codegen::http::uri::InvalidUri),
     #[error("Error that originate from the client or server")]
     Transport(#[source] tonic::transport::Error),
+    #[error("Error that originate from the client or server")]
+    MissingEndpoint(),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Service {
     endpoint: Option<String>,
     pub channel: Option<tonic::transport::Channel>,
@@ -29,8 +27,10 @@ impl super::client::Client for Service {
                 .await
                 .map_err(Error::Transport)?;
             self.channel = Some(channel);
+            Ok(self)
+        } else {
+            Err(Error::MissingEndpoint())
         }
-        Ok(self)
     }
 }
 
