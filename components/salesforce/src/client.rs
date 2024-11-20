@@ -92,7 +92,7 @@ impl Builder {
 
     /// Generates a new client or return error in case
     /// provided credentials path is not valid.
-    pub fn build(&mut self) -> Result<Client, Error> {
+    pub fn build(&self) -> Result<Client, Error> {
         let credentials_string = fs::read_to_string(&self.credentials_path)
             .map_err(|e| Error::OpenFile(e, self.credentials_path.to_owned()))?;
         let credentials: Credentials =

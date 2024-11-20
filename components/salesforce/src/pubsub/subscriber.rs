@@ -94,26 +94,20 @@ impl Subscriber {
 }
 
 pub struct Builder {
-    flowgen_service: flowgen_core::service::Service,
-    source_config: super::config::Source,
+    service: flowgen_core::service::Service,
+    config: super::config::Source,
 }
 
 impl Builder {
     // Creates a new instance of a Builder.
-    pub fn new(
-        flowgen_service: flowgen_core::service::Service,
-        source_config: super::config::Source,
-    ) -> Builder {
-        Builder {
-            flowgen_service,
-            source_config,
-        }
+    pub fn new(service: flowgen_core::service::Service, config: super::config::Source) -> Builder {
+        Builder { service, config }
     }
 
     pub async fn build(self) -> Result<Subscriber, Error> {
         // Connect to Salesforce.
         let sfdc_client = crate::client::Builder::new()
-            .with_credentials_path(self.source_config.credentials.into())
+            .with_credentials_path(self.config.credentials.into())
             .build()
             .map_err(Error::FlowgenSalesforceAuth)?
             .connect()
@@ -121,7 +115,7 @@ impl Builder {
             .map_err(Error::FlowgenSalesforceAuth)?;
 
         // Get PubSub context.
-        let pubsub = super::context::Builder::new(self.flowgen_service)
+        let pubsub = super::context::Builder::new(self.service)
             .with_client(sfdc_client)
             .build()
             .map_err(Error::FlowgenSalesforcePubSub)?;
@@ -132,7 +126,7 @@ impl Builder {
             pubsub,
             rx,
             tx,
-            topic_list: self.source_config.topic_list,
+            topic_list: self.config.topic_list,
         };
 
         Ok(s)

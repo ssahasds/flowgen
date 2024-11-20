@@ -8,7 +8,7 @@ pub enum Error {
     MissingEndpoint(),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Service {
     endpoint: Option<String>,
     pub channel: Option<tonic::transport::Channel>,

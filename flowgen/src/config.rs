@@ -10,18 +10,6 @@ pub struct Flow {
     pub source: Source,
     pub target: Target,
 }
-
-#[derive(Deserialize, Clone)]
-pub struct Nats {
-    pub credentials: String,
-    pub host: String,
-    pub stream_name: String,
-    pub stream_description: Option<String>,
-    pub subjects: Vec<String>,
-    pub kv_bucket_name: String,
-    pub kv_bucket_description: String,
-}
-
 #[derive(Deserialize, Clone)]
 #[allow(non_camel_case_types)]
 pub enum Source {
@@ -31,5 +19,5 @@ pub enum Source {
 #[derive(Deserialize, Clone)]
 #[allow(non_camel_case_types)]
 pub enum Target {
-    nats(Nats),
+    nats_jetstream(flowgen_nats::jetstream::config::Target),
 }

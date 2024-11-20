@@ -1,7 +1,5 @@
 use super::config;
-use async_nats::jetstream::{context::Publish, kv, stream};
 use flowgen_core::client::Client;
-use serde::Deserialize;
 use std::path::PathBuf;
 use tracing::error;
 
@@ -40,15 +38,20 @@ pub enum Source {
     salesforce_pubsub(flowgen_salesforce::pubsub::subscriber::Subscriber),
 }
 
+pub enum Target {
+    nats_jetstream(flowgen_nats::jetstream::publisher::Publisher),
+}
+
 pub struct Flow {
     config: config::Config,
     pub source: Option<Source>,
+    pub target: Option<Target>,
 }
 
 impl Flow {
     pub async fn init(mut self) -> Result<Self, Error> {
         // Setup Flowgen service.
-        let flowgen_service = flowgen_core::service::Builder::new()
+        let service = flowgen_core::service::Builder::new()
             .with_endpoint(format!(
                 "{0}:443",
                 flowgen_salesforce::pubsub::eventbus::ENDPOINT
@@ -64,55 +67,26 @@ impl Flow {
 
         // Setup source subscribers.
         match config.flow.source {
-            config::Source::salesforce_pubsub(source_config) => {
-                let subscriber = flowgen_salesforce::pubsub::subscriber::Builder::new(
-                    flowgen_service,
-                    source_config,
-                )
-                .build()
-                .await
-                .unwrap();
+            config::Source::salesforce_pubsub(config) => {
+                let subscriber =
+                    flowgen_salesforce::pubsub::subscriber::Builder::new(service.clone(), config)
+                        .build()
+                        .await
+                        .unwrap();
                 self.source = Some(Source::salesforce_pubsub(subscriber));
             }
         }
-        // Setup NATS client and stream.
-        // let nats_seed = fs::read_to_string(nats_credentials).await?;
-        // let nats_client = async_nats::ConnectOptions::with_nkey(nats_seed)
-        //     .connect(nats_host)
-        //     .await?;
-        // let config::Target::nats(target_config) = self.config.target;
-        // let nats_client = async_nats::connect(target_config.host)
-        //     .await
-        //     .map_err(Error::NatsConnect)?;
-        // let nats_jetstream = async_nats::jetstream::new(nats_client);
 
-        // let stream_config = stream::Config {
-        //     name: target_config.stream_name.clone(),
-        //     retention: stream::RetentionPolicy::Limits,
-        //     max_age: Duration::new(60 * 60 * 24 * 7, 0),
-        //     subjects: target_config.subjects.clone(),
-        //     description: target_config.stream_description.clone(),
-        //     ..Default::default()
-        // };
-
-        // if (nats_jetstream.create_stream(stream_config.clone()).await).is_err() {
-        //     nats_jetstream
-        //         .update_stream(stream_config)
-        //         .await
-        //         .map_err(Error::NatsCreateStream)?;
-        // };
-
-        // let kv = nats_jetstream
-        //     .create_key_value(kv::Config {
-        //         bucket: target_config.kv_bucket_name,
-        //         description: target_config.kv_bucket_description,
-        //         ..Default::default()
-        //     })
-        //     .await
-        //     .map_err(Error::NatsCreateKeyValue)?;
-
-        // let mut topic_info_list: Vec<TopicInfo> = Vec::new();
-
+        // Setup target publishers.
+        match config.flow.target {
+            config::Target::nats_jetstream(config) => {
+                let publisher = flowgen_nats::jetstream::publisher::Builder::new(service, config)
+                    .build()
+                    .await
+                    .unwrap();
+                self.target = Some(Target::nats_jetstream(publisher));
+            }
+        }
         Ok(self)
     }
 }
@@ -133,6 +107,7 @@ impl Builder {
         let f = Flow {
             config,
             source: None,
+            target: None,
         };
         Ok(f)
     }

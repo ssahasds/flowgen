@@ -15,10 +15,20 @@ pub enum Error {
     CredentialsNotProvided(),
 }
 
+/// Used to store Nats Client credentials.
+#[derive(serde::Deserialize)]
+struct Credentials {
+    /// nKey public key string.
+    nkey: String,
+    /// Instance url.
+    host: String,
+}
+
 #[derive(Debug)]
 pub struct Client {
     /// Nats client connect options
     connect_options: async_nats::ConnectOptions,
+    host: String,
     pub nats_client: Option<async_nats::Client>,
 }
 
@@ -28,7 +38,7 @@ impl flowgen_core::client::Client for Client {
     async fn connect(mut self) -> Result<Self, Error> {
         let connect_options = std::mem::take(&mut self.connect_options);
         let nats_client = connect_options
-            .connect("addrs")
+            .connect(self.host.clone())
             .await
             .map_err(Error::NatsConnection)?;
         self.nats_client = Some(nats_client);
@@ -56,16 +66,18 @@ impl Builder {
     }
 
     /// Generates a new Nats Client or return error in case provided credentials are not valid.
-    pub fn build(self) -> Result<Client, Error> {
+    pub fn build(&self) -> Result<Client, Error> {
         if let Some(credentials_path) = &self.credentials_path {
             let credentials_string = fs::read_to_string(credentials_path)
                 .map_err(|e| Error::OpenFile(e, credentials_path.to_owned()))?;
+            let credentials: Credentials =
+                serde_json::from_str(&credentials_string).map_err(Error::ParseCredentials)?;
 
-            let nats_connect_opts = async_nats::ConnectOptions::with_nkey(credentials_string);
-
+            let nats_connect_opts = async_nats::ConnectOptions::with_nkey(credentials.nkey);
             Ok(Client {
                 connect_options: nats_connect_opts,
                 nats_client: None,
+                host: credentials.host,
             })
         } else {
             Err(Error::CredentialsNotProvided())

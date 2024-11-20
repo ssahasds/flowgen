@@ -1,5 +1,5 @@
 [workspace]
-members = ["flowgen", "bin/event-relay", "bin/event-store"]
+members = ["flowgen", "examples/event-relay", "examples/event-store"]
 resolver = "2"
 exclude = [".cargo"]
 
