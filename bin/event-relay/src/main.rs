@@ -67,6 +67,7 @@ async fn run(f: flowgen::flow::Flow) -> Result<(), Error> {
                             event!(name: "fetch_response", Level::INFO, rpc_id = fr.rpc_id);
                             for ce in fr.events {
                                 if let Some(pe) = ce.event {
+                                    if !pe.id.is_empty() {
                                     event!(name: "event_consumed", Level::INFO, event_id = pe.id);
                                     
                                     // Get the relevant topic from the list.
@@ -94,6 +95,7 @@ async fn run(f: flowgen::flow::Flow) -> Result<(), Error> {
                                                 }
                                     }
                                     
+                                 }
                                 }
                             }
                         }
