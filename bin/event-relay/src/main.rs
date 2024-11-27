@@ -23,7 +23,6 @@ pub enum Error {
     FlowgenSalesforcePubSubSubscriberError(#[source] flowgen_salesforce::pubsub::subscriber::Error),
 }
 
-
 #[tokio::main]
 async fn main() {
     // Install global log collector.
@@ -57,7 +56,9 @@ async fn run(f: flowgen::flow::Flow) -> Result<(), Error> {
     if let Some(source) = f.source {
         match source {
             flow::Source::salesforce_pubsub(source_subscriber) => {
-                let subscriber_task_list = source_subscriber.init().map_err(Error::FlowgenSalesforcePubSubSubscriberError)?;
+                let subscriber_task_list = source_subscriber
+                    .init()
+                    .map_err(Error::FlowgenSalesforcePubSubSubscriberError)?;
                 let mut rx = source_subscriber.rx;
 
                 let mut topic_info_list: Vec<TopicInfo> = Vec::new();
@@ -74,7 +75,6 @@ async fn run(f: flowgen::flow::Flow) -> Result<(), Error> {
                                     // Relay events only if event_id is present.
                                     if !pe.id.is_empty() {
                                     event!(name: "event_consumed", Level::INFO, event_id = pe.id);
-                                    
                                     // Get the relevant topic from the list.
                                     let mut topic_list: Vec<TopicInfo> = topic_info_list
                                         .iter()
@@ -83,7 +83,7 @@ async fn run(f: flowgen::flow::Flow) -> Result<(), Error> {
                                         .collect();
 
 
-                                    // Use a default all change events topic if no schema_id is to be found. 
+                                    // Use a default all change events topic if no schema_id is to be found.
                                     if topic_list.is_empty() {
                                          topic_list = topic_info_list
                                         .iter()
@@ -92,11 +92,10 @@ async fn run(f: flowgen::flow::Flow) -> Result<(), Error> {
                                         .collect();
                                     }
 
-                                    // Break if default topic was not setup. 
+                                    // Break if default topic was not setup.
                                     if topic_list.is_empty() {
                                         break;
                                     }
-                                    
                                     // Setup nats subject and payload.
                                     let s = topic_list[0].topic_name.replace('/', ".").to_lowercase();
                                     let event_name = &s[1..];
@@ -115,7 +114,6 @@ async fn run(f: flowgen::flow::Flow) -> Result<(), Error> {
                                                     }
                                                 }
                                     }
-                                    
                                  }
                                 }
                             }
