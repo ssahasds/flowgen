@@ -7,10 +7,7 @@ edition = "2021"
 [dependencies]
 serde_avro_fast = "1.1.2"
 oauth2 = "4.4.2"
-deltalake = { version = "0.21.0", features = [
-    "datafusion",
-] } # flowgen_core = { git = "https://gitlab.com/connve/platform/flowgen.git" }
-# flowgen_salesforce = { git = "https://gitlab.com/connve/platform/flowgen.git" }
+deltalake = { version = "0.21.0", features = ["datafusion"] }
 flowgen_core = { path = "../components/core" }
 flowgen_salesforce = { path = "../components/salesforce" }
 flowgen_nats = { path = "../components/nats" }
