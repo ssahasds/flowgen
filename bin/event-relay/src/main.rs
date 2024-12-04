@@ -99,7 +99,7 @@ async fn run(f: flowgen::flow::Flow) -> Result<(), Error> {
                                     // Setup nats subject and payload.
                                     let s = topic_list[0].topic_name.replace('/', ".").to_lowercase();
                                     let event_name = &s[1..];
-                                    let subject = format!("pubsub.{en}.{eid}", en = event_name, eid = pe.id);
+                                    let subject = format!("salesforce.pubsub.in.{en}.{eid}", en = event_name, eid = pe.id);
                                     let event: Vec<u8> = bincode::serialize(&pe).map_err(Error::Bincode)?;
 
 
