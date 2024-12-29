@@ -1,20 +1,9 @@
-use arrow::buffer::Buffer;
-use arrow::ipc::reader::{StreamDecoder, StreamReader};
-use arrow::ipc::RecordBatch;
-use async_nats::jetstream::context::Publish;
-use chrono::Utc;
-use flowgen::flow;
-use futures::future::try_join_all;
-use futures::future::TryJoinAll;
+use futures::future::{join_all, JoinAll};
 use glob::glob;
-use std::collections::HashMap;
 use std::env;
 use std::process;
-use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::error;
-use tracing::event;
-use tracing::Level;
 pub const DEFAULT_TOPIC_NAME: &str = "/data/ChangeEvents";
 
 #[derive(thiserror::Error, Debug)]
@@ -40,6 +29,7 @@ async fn main() {
     let config_dir = env::var("CONFIG_DIR").expect("env variable CONFIG_DIR should be set");
 
     // Run Flowgen service for each of individual configs.
+    let mut all_handle_list = Vec::new();
     for config in glob(&config_dir).unwrap_or_else(|err| {
         error!("{:?}", err);
         process::exit(1);
@@ -49,7 +39,7 @@ async fn main() {
             process::exit(1);
         });
 
-        flowgen::flow::Builder::new(config_path)
+        let f = flowgen::flow::Builder::new(config_path)
             .build()
             .unwrap_or_else(|err| {
                 error!("{:?}", err);
@@ -61,6 +51,16 @@ async fn main() {
                 error!("{:?}", err);
                 process::exit(1);
             });
+
+        if let Some(handle_list) = f.handle_list {
+            for handle in handle_list {
+                all_handle_list.push(handle);
+            }
+        }
+    }
+    let result = futures::future::join_all(all_handle_list).await;
+    for r in result {
+        r.unwrap();
     }
 }
 

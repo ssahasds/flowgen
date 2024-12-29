@@ -4,16 +4,24 @@ pub struct FileMessage {
     pub file_chunk: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct SalesforcePubSubMessage {
     pub fetch_response: salesforce_pubsub::eventbus::v1::FetchResponse,
     pub topic_info: salesforce_pubsub::eventbus::v1::TopicInfo,
 }
 
+impl From<SalesforcePubSubMessage> for bytes::Bytes {
+    fn from(val: SalesforcePubSubMessage) -> Self {
+        let event: Vec<u8> = bincode::serialize(&val).unwrap();
+        let bytes: bytes::Bytes = event.into();
+        bytes
+    }
+}
+
 #[derive(Debug, Clone)]
 #[allow(non_camel_case_types)]
 pub enum ChannelMessage {
-    file(FileMessage),
     nats_jetstream(async_nats::message::Message),
+    file(FileMessage),
     salesforce_pubsub(SalesforcePubSubMessage),
 }

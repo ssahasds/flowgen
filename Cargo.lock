@@ -1798,7 +1798,10 @@ version = "0.0.1"
 dependencies = [
  "arrow",
  "async-nats",
+ "bincode",
+ "bytes",
  "salesforce_pubsub",
+ "serde",
  "thiserror 1.0.69",
  "tonic",
  "url",

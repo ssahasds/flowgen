@@ -1,8 +1,12 @@
 use super::config;
 use arrow::array::RecordBatch;
 use async_nats::jetstream::context::Publish;
+use bytes::Bytes;
 use chrono::Utc;
-use flowgen_core::{client::Client, message::ChannelMessage};
+use flowgen_core::{
+    client::Client,
+    message::{ChannelMessage, SalesforcePubSubMessage},
+};
 use flowgen_file::subscriber::RecordBatchConverter;
 use flowgen_salesforce::pubsub::subscriber::ProducerEventConverter;
 use futures::future::{try_join_all, TryJoinAll};
@@ -57,15 +61,11 @@ pub enum Target {
 
 pub struct Flow {
     config: config::Config,
-    // source_channel: Option<Channel>,
-    // target_channel: Option<Channel>,
-    pub source: Option<Source>,
-    pub processor: Option<Processor>,
-    pub target: Option<Target>,
+    pub handle_list: Option<Vec<JoinHandle<Result<(), Error>>>>,
 }
 
 impl Flow {
-    pub async fn run(self) -> Result<Self, Error> {
+    pub async fn run(mut self) -> Result<Self, Error> {
         // Setup Flowgen service.
         let service = flowgen_core::service::Builder::new()
             .with_endpoint(format!("{0}:443", "https://api.pubsub.salesforce.com"))
@@ -77,7 +77,7 @@ impl Flow {
 
         let config = self.config.clone();
 
-        let mut task_list: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let mut handle_list: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
         let (tx, mut rx): (Sender<ChannelMessage>, Receiver<ChannelMessage>) =
             tokio::sync::broadcast::channel(1000);
 
@@ -123,57 +123,66 @@ impl Flow {
                     .await
                     .map_err(Error::FlowgenNatsJetStreamPublisher)?;
 
-                // let task: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-                while let Ok(message) = rx.recv().await {
-                    match message {
-                        ChannelMessage::file(m) => {
+                let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                    while let Ok(message) = rx.recv().await {
+                        if let ChannelMessage::file(m) = message {
                             let event = m.record_batch.to_bytes().unwrap();
                             let subject = format!("filedrop.in.{}", m.file_chunk);
 
-                            publisher
-                                .jetstream
-                                .send_publish(subject, Publish::build().payload(event.into()))
-                                .await
-                                .map_err(Error::NatsPublish)?;
+                            // publisher
+                            //     .jetstream
+                            //     .send_publish(subject, Publish::build().payload(event.into()))
+                            //     .await
+                            //     .map_err(Error::NatsPublish)?;
 
                             event!(Level::INFO, "file_chunk: {}", m.file_chunk);
                         }
-                        ChannelMessage::salesforce_pubsub(m) => {
-                            for ce in m.fetch_response.events {
-                                if let Some(pe) = ce.event {
-                                    let event = pe.to_bytes().unwrap();
-                                    let s =
-                                        m.topic_info.topic_name.replace('/', ".").to_lowercase();
-                                    let event_name = &s[1..];
-                                    let subject =
-                                        format!("salesforce.pubsub.in.{}.{}", event_name, pe.id);
-
-                                    publisher
-                                        .jetstream
-                                        .send_publish(
-                                            subject,
-                                            Publish::build().payload(event.into()),
-                                        )
-                                        .await
-                                        .map_err(Error::NatsPublish)?;
-
-                                    event!(Level::INFO, "salesforce_pubsub: {}", pe.id);
-                                }
-                            }
-                        }
-                        _ => {}
                     }
-                }
+                    Ok(())
+                });
+                handle_list.push(handle);
+
+                let mut rx = tx.subscribe();
+                let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                    while let Ok(message) = rx.recv().await {
+                        if let ChannelMessage::salesforce_pubsub(m) = message {
+                            let event = Bytes::from(m.clone());
+                            let s = m.topic_info.topic_name.replace('/', ".").to_lowercase();
+                            let event_name = &s[1..];
+                            let subject = format!(
+                                "salesforce.pubsub.in.{}.{}",
+                                event_name, m.fetch_response.rpc_id
+                            );
+
+                            publisher
+                                .jetstream
+                                .send_publish(subject, Publish::build().payload(event))
+                                .await
+                                .map_err(Error::NatsPublish)?;
+
+                            event!(
+                                Level::INFO,
+                                "salesforce_pubsub: {}",
+                                m.fetch_response.rpc_id
+                            );
+                        }
+                    }
+                    Ok(())
+                });
+                handle_list.push(handle);
             }
+
             config::Target::deltalake(config) => {
                 // let publisher = flowgen_deltalake::publisher::Builder::new(config)
                 //     .build()
                 //     .await
                 //     .unwrap();
-
-                let task: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                let mut rx = tx.subscribe();
+                let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
                     while let Ok(message) = rx.recv().await {
-                        println!("{:?}", "delta_target");
+                        if let ChannelMessage::nats_jetstream(m) = message {
+                            // m.into()
+                        }
                         // match message {
                         //     ChannelMessage::FileMessage(m) => {
                         //         let event = m.record_batch.to_bytes().unwrap();
@@ -189,11 +198,10 @@ impl Flow {
                     }
                     Ok(())
                 });
-                task_list.push(task);
+                handle_list.push(handle);
             }
         }
-
-        tokio::spawn(async move { task_list.into_iter().collect::<TryJoinAll<_>>().await });
+        self.handle_list = Some(handle_list);
         Ok(self)
     }
 }
@@ -213,13 +221,7 @@ impl Builder {
         let config: config::Config = serde_json::from_str(&c).map_err(Error::ParseConfig)?;
         let f = Flow {
             config,
-            // processor_receiver: None,
-            // target_receiver: None,
-            // target_channel: None,
-            // source_channel: None,
-            source: None,
-            processor: None,
-            target: None,
+            handle_list: None,
         };
         Ok(f)
     }

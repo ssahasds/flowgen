@@ -15,11 +15,6 @@ pub enum Error {
     TokioSendMessage(#[source] tokio::sync::broadcast::error::SendError<ChannelMessage>),
 }
 
-pub trait Converter {
-    type Error;
-    fn to_bytes(&self) -> Result<Vec<u8>, Self::Error>;
-}
-
 pub struct Subscriber {
     handle_list: Vec<JoinHandle<Result<(), Error>>>,
 }
