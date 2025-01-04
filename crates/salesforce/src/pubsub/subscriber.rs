@@ -11,6 +11,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_stream::StreamExt;
+use tracing::{event, Level};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -40,6 +41,7 @@ impl Subscriber {
                 .await
                 .map_err(Error::TokioJoin);
         });
+        event!(Level::INFO, "event: subscribed");
         Ok(())
     }
 }

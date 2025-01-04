@@ -28,9 +28,6 @@ async fn main() {
     // Setup environment variables
     let config_dir = env::var("CONFIG_DIR").expect("env variable CONFIG_DIR should be set");
 
-    // Run Flowgen service for each of individual configs.
-    let mut all_handle_list = Vec::new();
-
     if let Ok(configs) = glob(&config_dir) {
         let num_configs = configs.count();
         if num_configs == 0 {
@@ -43,6 +40,7 @@ async fn main() {
         }
     }
 
+    let mut all_handle_list = Vec::new();
     for config in glob(&config_dir).unwrap_or_else(|err| {
         error!("{:?}", err);
         process::exit(1);
