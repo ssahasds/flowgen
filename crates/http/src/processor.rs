@@ -1,5 +1,7 @@
-use arrow::array::StringArray;
-use flowgen_core::event::{Event, EventBuilder, SerdeValueExt};
+use flowgen_core::{
+    event::{Event, EventBuilder, SerdeValueExt},
+    render::Render,
+};
 use futures_util::future::TryJoinAll;
 use handlebars::Handlebars;
 use serde::{Deserialize, Serialize};
@@ -27,6 +29,10 @@ pub enum Error {
     FlowgenEvent(#[source] flowgen_core::event::Error),
     #[error("Cannot parse the credentials file")]
     ParseCredentials(#[source] serde_json::Error),
+    #[error("There was an error with parsing a given value.")]
+    Serde(#[source] flowgen_core::serde::Error),
+    #[error("There was an error with rendering a given value.")]
+    Render(#[source] flowgen_core::render::Error),
 }
 pub struct Processor {
     handle_list: Vec<JoinHandle<Result<(), Error>>>,
@@ -71,7 +77,6 @@ impl Builder {
 
     pub async fn build(mut self) -> Result<Processor, Error> {
         let mut handle_list: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
-        let handlebars = Handlebars::new();
 
         let client = reqwest::ClientBuilder::new()
             .https_only(true)
@@ -84,24 +89,14 @@ impl Builder {
                     let mut data = Map::new();
                     if let Some(inputs) = &self.config.inputs {
                         for (key, input) in inputs {
-                            if !input.is_static && !input.is_extension {
-                                let array: StringArray = event
-                                    .data
-                                    .column_by_name(&input.value)
-                                    .unwrap()
-                                    .to_data()
-                                    .into();
-
-                                for item in (&array).into_iter().flatten() {
-                                    data.insert(key.to_string(), Value::String(item.to_string()));
-                                }
+                            let value = input.extract_from(&event.data, &event.extensions);
+                            if let Ok(value) = value {
+                                data.insert(key.to_string(), Value::String(value.to_string()));
                             }
                         }
                     }
 
-                    let endpoint = handlebars
-                        .render_template(&self.config.endpoint, &data)
-                        .unwrap();
+                    let endpoint = self.config.endpoint.render(&data).map_err(Error::Render)?;
 
                     let client = client.get(endpoint);
                     let mut text_resp = String::new();

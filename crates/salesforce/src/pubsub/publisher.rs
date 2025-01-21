@@ -6,11 +6,8 @@ use flowgen_core::{
 };
 use salesforce_pubsub::eventbus::v1::{ProducerEvent, PublishRequest, SchemaRequest, TopicRequest};
 use serde_json::{Map, Value};
-use std::{future::Future, sync::Arc};
-use tokio::{
-    sync::{broadcast::Receiver, Mutex},
-    task::JoinHandle,
-};
+use std::{path::Path, sync::Arc};
+use tokio::sync::{broadcast::Receiver, Mutex};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -28,15 +25,17 @@ pub enum Error {
 
 pub struct Publisher {
     service: flowgen_core::service::Service,
-    config: super::config::Target,
+    config: Arc<super::config::Target>,
     rx: Receiver<Event>,
     current_task_id: usize,
 }
 
 impl flowgen_core::publisher::Publisher for Publisher {
     async fn publish(mut self) -> Result<(), Error> {
+        let config = self.config.as_ref();
+        let a = Path::new(&config.credentials);
         let sfdc_client = crate::client::Builder::new()
-            .with_credentials_path(self.config.credentials.into())
+            .with_credentials_path(a.to_path_buf())
             .build()
             .map_err(Error::SalesforceAuth)?
             .connect()
@@ -105,11 +104,9 @@ impl flowgen_core::publisher::Publisher for Publisher {
                     payload: bytes,
                     ..Default::default()
                 };
-
-                println!("{:?}", payload);
-
                 events.push(pe);
-                let test = pubsub
+
+                let resp = pubsub
                     .lock()
                     .await
                     .publish(PublishRequest {
@@ -119,7 +116,8 @@ impl flowgen_core::publisher::Publisher for Publisher {
                     })
                     .await
                     .unwrap();
-                println!("{:?}", test);
+
+                println!("{:?}", resp);
             }
         }
         Ok(())
@@ -131,7 +129,7 @@ impl flowgen_core::publisher::Publisher for Publisher {
 #[derive(Default)]
 pub struct PublisherBuilder {
     service: Option<flowgen_core::service::Service>,
-    config: Option<super::config::Target>,
+    config: Option<Arc<super::config::Target>>,
     rx: Option<Receiver<Event>>,
     current_task_id: usize,
 }
@@ -148,7 +146,7 @@ impl PublisherBuilder {
         self
     }
 
-    pub fn config(mut self, config: super::config::Target) -> Self {
+    pub fn config(mut self, config: Arc<super::config::Target>) -> Self {
         self.config = Some(config);
         self
     }
