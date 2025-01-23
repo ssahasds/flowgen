@@ -28,4 +28,5 @@ thiserror = "1.0.63"
 url = "2.5.2"
 reqwest = "0.12.11"
 flowgen_core = { path = "../core" }
-handlebars = "6.3.0"
+handlebars = { workspace = true }
+arrow-json = { workspace = true }

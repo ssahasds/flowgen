@@ -2069,6 +2069,7 @@ name = "flowgen_core"
 version = "0.0.1"
 dependencies = [
  "arrow 54.0.0",
+ "arrow-json 54.0.0",
  "async-nats",
  "bincode",
  "bytes",
@@ -2140,6 +2141,7 @@ name = "flowgen_http"
 version = "0.0.1"
 dependencies = [
  "arrow 54.0.0",
+ "arrow-json 54.0.0",
  "bytes",
  "flowgen_core",
  "futures-util",

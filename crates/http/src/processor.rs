@@ -1,9 +1,9 @@
 use flowgen_core::{
-    event::{Event, EventBuilder, SerdeValueExt},
+    event::{Event, EventBuilder},
+    recordbatch::RecordBatchExt,
     render::Render,
 };
 use futures_util::future::TryJoinAll;
-use handlebars::Handlebars;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::{
@@ -99,7 +99,7 @@ impl Builder {
                     let endpoint = self.config.endpoint.render(&data).map_err(Error::Render)?;
 
                     let client = client.get(endpoint);
-                    let mut text_resp = String::new();
+                    let mut resp = String::new();
 
                     if let Some(ref credentials) = self.config.credentials {
                         let credentials_string = fs::read_to_string(credentials).await.unwrap();
@@ -107,7 +107,7 @@ impl Builder {
                             .map_err(Error::ParseCredentials)?;
 
                         if let Some(bearer_token) = credentials.bearer_auth {
-                            text_resp = client
+                            resp = client
                                 .bearer_auth(bearer_token)
                                 .send()
                                 .await
@@ -118,8 +118,7 @@ impl Builder {
                         }
                     };
 
-                    let resp: serde_json::Value = serde_json::from_str(&text_resp).unwrap();
-                    let record_batch: arrow::array::RecordBatch = resp.to_recordbatch().unwrap();
+                    let record_batch = resp.to_recordbatch().unwrap();
                     let extensions = Value::Object(data).to_recordbatch().unwrap();
                     let subject = "http.respone.out".to_string();
 

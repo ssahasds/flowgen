@@ -85,6 +85,7 @@ impl flowgen_core::publisher::Publisher for Publisher {
                     }
                 }
 
+                println!("{:?}", data);
                 let payload = self
                     .config
                     .payload
