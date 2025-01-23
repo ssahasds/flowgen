@@ -152,7 +152,6 @@ impl Builder {
                                     )
                                     .map_err(Error::SerdeAvroValue)?;
 
-                                    println!("{:?}", value);
                                     let record_batch = value.to_recordbatch().unwrap();
 
                                     let topic =

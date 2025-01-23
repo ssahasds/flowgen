@@ -91,7 +91,7 @@ impl Builder {
                         for (key, input) in inputs {
                             let value = input.extract(&event.data, &event.extensions);
                             if let Ok(value) = value {
-                                data.insert(key.to_string(), Value::String(value.to_string()));
+                                data.insert(key.to_string(), value);
                             }
                         }
                     }
@@ -120,7 +120,6 @@ impl Builder {
                     };
 
                     let record_batch = resp.to_recordbatch().unwrap();
-                    println!("{:?}", data);
                     let extensions = Value::Object(data).to_recordbatch().unwrap();
                     let subject = "http.respone.out".to_string();
 

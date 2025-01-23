@@ -32,7 +32,13 @@ fn extract_from_array(array: &Arc<dyn Array>, input: &Input) -> Result<Value, Er
     match data_type {
         DataType::Utf8 => {
             let array_data = array.as_any().downcast_ref::<StringArray>();
-            value = Value::String(array_data.unwrap().value(input.index).to_string());
+            value = Value::String(
+                array_data
+                    .unwrap()
+                    .value(input.index)
+                    .to_string()
+                    .to_string(),
+            );
         }
         DataType::List(_) => {
             let array_data = array.as_any().downcast_ref::<ListArray>();
