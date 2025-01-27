@@ -18,35 +18,37 @@ struct Credentials {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+pub enum ProcessorError {
     #[error("There was an error reading/writing/seeking file.")]
-    InputOutput(#[source] std::io::Error),
+    IOError(#[source] std::io::Error),
     #[error("There was an error executing async task.")]
-    TokioJoin(#[source] tokio::task::JoinError),
+    TokioJoinError(#[source] tokio::task::JoinError),
     #[error("There was an error with sending event over channel.")]
-    TokioSendMessage(#[source] tokio::sync::broadcast::error::SendError<Event>),
+    TokioSendMessageError(#[source] tokio::sync::broadcast::error::SendError<Event>),
     #[error("There was an error constructing Flowgen Event.")]
-    FlowgenEvent(#[source] flowgen_core::event::Error),
-    #[error("Cannot parse the credentials file")]
-    ParseCredentials(#[source] serde_json::Error),
-    #[error("There was an error with parsing a given value.")]
-    Serde(#[source] flowgen_core::serde::Error),
+    EventError(#[source] flowgen_core::event::Error),
+    #[error("There was an error with parsing credentials file.")]
+    ParseCredentialsError(#[source] serde_json::Error),
+    #[error("There was an error with processing record batch.")]
+    RecordBatchError(#[source] flowgen_core::recordbatch::RecordBatchError),
     #[error("There was an error with rendering a given value.")]
-    Render(#[source] flowgen_core::render::Error),
+    RenderError(#[source] flowgen_core::render::Error),
+    #[error("There was an error with processing request.")]
+    ReqwestError(#[source] reqwest::Error),
 }
 pub struct Processor {
-    handle_list: Vec<JoinHandle<Result<(), Error>>>,
+    handle_list: Vec<JoinHandle<Result<(), ProcessorError>>>,
 }
 
 impl Processor {
-    pub async fn process(self) -> Result<(), Error> {
+    pub async fn process(self) -> Result<(), ProcessorError> {
         tokio::spawn(async move {
             let _ = self
                 .handle_list
                 .into_iter()
                 .collect::<TryJoinAll<_>>()
                 .await
-                .map_err(Error::TokioJoin);
+                .map_err(ProcessorError::TokioJoinError);
         });
         Ok(())
     }
@@ -75,15 +77,15 @@ impl Builder {
         }
     }
 
-    pub async fn build(mut self) -> Result<Processor, Error> {
-        let mut handle_list: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+    pub async fn build(mut self) -> Result<Processor, ProcessorError> {
+        let mut handle_list: Vec<JoinHandle<Result<(), ProcessorError>>> = Vec::new();
 
         let client = reqwest::ClientBuilder::new()
             .https_only(true)
             .build()
-            .unwrap();
+            .map_err(ProcessorError::ReqwestError)?;
 
-        let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+        let handle: JoinHandle<Result<(), ProcessorError>> = tokio::spawn(async move {
             while let Ok(event) = self.rx.recv().await {
                 if event.current_task_id == Some(self.current_task_id - 1) {
                     let mut data = Map::new();
@@ -96,42 +98,57 @@ impl Builder {
                         }
                     }
 
-                    let endpoint = self.config.endpoint.render(&data).map_err(Error::Render)?;
-                    println!("{:?}", endpoint);
+                    let endpoint = self
+                        .config
+                        .endpoint
+                        .render(&data)
+                        .map_err(ProcessorError::RenderError)?;
 
                     let client = client.get(endpoint);
                     let mut resp = String::new();
 
                     if let Some(ref credentials) = self.config.credentials {
-                        let credentials_string = fs::read_to_string(credentials).await.unwrap();
+                        let credentials_string = fs::read_to_string(credentials)
+                            .await
+                            .map_err(ProcessorError::IOError)?;
+
                         let credentials: Credentials = serde_json::from_str(&credentials_string)
-                            .map_err(Error::ParseCredentials)?;
+                            .map_err(ProcessorError::ParseCredentialsError)?;
 
                         if let Some(bearer_token) = credentials.bearer_auth {
                             resp = client
                                 .bearer_auth(bearer_token)
                                 .send()
                                 .await
-                                .unwrap()
+                                .map_err(ProcessorError::ReqwestError)?
                                 .text()
                                 .await
-                                .unwrap();
+                                .map_err(ProcessorError::ReqwestError)?;
                         }
                     };
 
-                    let record_batch = resp.to_recordbatch().unwrap();
-                    let extensions = Value::Object(data).to_recordbatch().unwrap();
-                    let subject = "http.respone.out".to_string();
+                    let recordbatch = resp
+                        .to_recordbatch()
+                        .map_err(ProcessorError::RecordBatchError)?;
+
+                    let extensions = Value::Object(data)
+                        .to_string()
+                        .to_recordbatch()
+                        .map_err(ProcessorError::RecordBatchError)?;
+
+                    let subject = "http.response.out".to_string();
 
                     let e = EventBuilder::new()
-                        .data(record_batch)
+                        .data(recordbatch)
                         .extensions(extensions)
                         .subject(subject)
                         .current_task_id(self.current_task_id)
                         .build()
-                        .map_err(Error::FlowgenEvent)?;
+                        .map_err(ProcessorError::EventError)?;
 
-                    self.tx.send(e).map_err(Error::TokioSendMessage)?;
+                    self.tx
+                        .send(e)
+                        .map_err(ProcessorError::TokioSendMessageError)?;
                 }
             }
             Ok(())

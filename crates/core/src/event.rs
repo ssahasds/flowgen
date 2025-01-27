@@ -1,7 +1,5 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Provided value is not an object.")]
-    NotObject(),
     #[error("Missing required attributes.")]
     MissingRequiredAttribute(String),
 }

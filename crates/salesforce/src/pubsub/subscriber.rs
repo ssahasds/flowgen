@@ -32,6 +32,8 @@ pub enum Error {
     TokioSendMessage(#[source] tokio::sync::broadcast::error::SendError<Event>),
     #[error("There was an error deserializing data into binary format.")]
     Bincode(#[source] bincode::Error),
+    #[error("There was an error with processing record batch.")]
+    RecordBatchError(#[source] flowgen_core::recordbatch::RecordBatchError),
 }
 
 const DEFAULT_MESSAGE_SUBJECT: &str = "salesforce.pubsub.in";
@@ -152,7 +154,10 @@ impl Builder {
                                     )
                                     .map_err(Error::SerdeAvroValue)?;
 
-                                    let record_batch = value.to_recordbatch().unwrap();
+                                    let recordbatch = value
+                                        .to_string()
+                                        .to_recordbatch()
+                                        .map_err(Error::RecordBatchError)?;
 
                                     let topic =
                                         topic_info.topic_name.replace('/', ".").to_lowercase();
@@ -165,7 +170,7 @@ impl Builder {
                                     );
 
                                     let e = EventBuilder::new()
-                                        .data(record_batch)
+                                        .data(recordbatch)
                                         .subject(subject)
                                         .current_task_id(self.current_task_id)
                                         .build()

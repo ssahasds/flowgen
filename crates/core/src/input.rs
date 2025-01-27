@@ -1,20 +1,17 @@
-use std::sync::Arc;
-
 use arrow::{
     array::{Array, ListArray, StringArray, StructArray},
     datatypes::DataType,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+pub enum InputError {
     #[error("There was an error with an Apache Arrow data.")]
-    Arrow(#[source] arrow::error::ArrowError),
-    #[error("Provided value is not an object.")]
-    NotObject(),
-    #[error("Missing required attributes.")]
-    MissingRequiredAttribute(String),
+    ArrowError(#[source] arrow::error::ArrowError),
+    #[error("There is not data available in the array.")]
+    EmptyArrayError(),
 }
 
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
@@ -26,7 +23,7 @@ pub struct Input {
     pub nested: Option<Box<Self>>,
 }
 
-fn extract_from_array(array: &Arc<dyn Array>, input: &Input) -> Result<Value, Error> {
+fn extract_from_array(array: &Arc<dyn Array>, input: &Input) -> Result<Value, InputError> {
     let mut value = Value::Null;
     let data_type = array.data_type();
     match data_type {
@@ -34,7 +31,7 @@ fn extract_from_array(array: &Arc<dyn Array>, input: &Input) -> Result<Value, Er
             let array_data = array.as_any().downcast_ref::<StringArray>();
             value = Value::String(
                 array_data
-                    .unwrap()
+                    .ok_or_else(InputError::EmptyArrayError)?
                     .value(input.index)
                     .to_string()
                     .to_string(),
@@ -42,7 +39,9 @@ fn extract_from_array(array: &Arc<dyn Array>, input: &Input) -> Result<Value, Er
         }
         DataType::List(_) => {
             let array_data = array.as_any().downcast_ref::<ListArray>();
-            let nested_array = array_data.unwrap().value(input.index);
+            let nested_array = array_data
+                .ok_or_else(InputError::EmptyArrayError)?
+                .value(input.index);
             if let Some(nested_input) = &input.nested {
                 let input = &Input {
                     value: nested_input.value.clone(),
@@ -51,14 +50,18 @@ fn extract_from_array(array: &Arc<dyn Array>, input: &Input) -> Result<Value, Er
                     index: nested_input.index,
                     nested: nested_input.nested.clone(),
                 };
-                value = extract_from_array(&nested_array, input).unwrap();
+                value = extract_from_array(&nested_array, input)?;
             } else {
-                value = extract_from_array(&nested_array, input).unwrap();
+                value = extract_from_array(&nested_array, input)?;
             }
         }
         DataType::Struct(_) => {
             let array_data = array.as_any().downcast_ref::<StructArray>();
-            let nested_array = array_data.unwrap().column_by_name(&input.value).unwrap();
+            let nested_array = array_data
+                .ok_or_else(InputError::EmptyArrayError)?
+                .column_by_name(&input.value)
+                .ok_or_else(InputError::EmptyArrayError)?;
+
             if let Some(nested_input) = &input.nested {
                 let input = &Input {
                     value: nested_input.value.clone(),
@@ -67,9 +70,9 @@ fn extract_from_array(array: &Arc<dyn Array>, input: &Input) -> Result<Value, Er
                     index: nested_input.index,
                     nested: nested_input.nested.clone(),
                 };
-                value = extract_from_array(nested_array, input).unwrap();
+                value = extract_from_array(nested_array, input)?;
             } else {
-                value = extract_from_array(nested_array, input).unwrap();
+                value = extract_from_array(nested_array, input)?;
             }
         }
         _ => {}
@@ -82,19 +85,19 @@ impl Input {
         &self,
         data: &arrow::array::RecordBatch,
         extensions: &Option<arrow::array::RecordBatch>,
-    ) -> Result<Value, Error> {
+    ) -> Result<Value, InputError> {
         let mut value = Value::Null;
         if !self.is_extension {
             let array: Option<&Arc<dyn Array>> = data.column_by_name(&self.value);
             if let Some(array) = array {
-                value = extract_from_array(array, self).unwrap();
+                value = extract_from_array(array, self)?;
             }
         }
         if self.is_extension {
             if let Some(extensions) = extensions {
                 let array: Option<&Arc<dyn Array>> = extensions.column_by_name(&self.value);
                 if let Some(array) = array {
-                    value = extract_from_array(array, self).unwrap();
+                    value = extract_from_array(array, self)?;
                 }
             }
         }

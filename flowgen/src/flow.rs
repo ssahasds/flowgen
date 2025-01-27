@@ -21,7 +21,9 @@ pub enum Error {
     #[error("Failed to setup Salesforce PubSub as flow source.")]
     FlowgenSalesforcePubSubSubscriberError(#[source] flowgen_salesforce::pubsub::subscriber::Error),
     #[error("Failed to setup Salesforce PubSub as flow source.")]
-    SalesforcePubsubPublisher(#[source] flowgen_salesforce::pubsub::publisher::Error),
+    SalesforcePubsubPublisher(#[source] flowgen_salesforce::pubsub::publisher::PublisherError),
+    #[error("There was an error with processing http request.")]
+    HttpProcessorError(#[source] flowgen_http::processor::ProcessorError),
     #[error("There was an error with Flowgen Nats JetStream Publisher.")]
     FlowgenNatsJetStreamPublisher(#[source] flowgen_nats::jetstream::publisher::Error),
     #[error("There was an error with Flowgen Nats JetStream Subscriber.")]
@@ -89,10 +91,10 @@ impl Flow {
                         flowgen_http::processor::Builder::new(config.clone(), &tx, i)
                             .build()
                             .await
-                            .unwrap()
+                            .map_err(Error::HttpProcessorError)?
                             .process()
                             .await
-                            .unwrap()
+                            .map_err(Error::HttpProcessorError)?
                     }
                 },
                 Task::target(target) => match target {

@@ -1,13 +1,11 @@
 use std::{io::BufReader, sync::Arc};
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+pub enum RecordBatchError {
     #[error("There was an error with an Apache Arrow data.")]
-    Arrow(#[source] arrow::error::ArrowError),
-    #[error("Provided value is not an object.")]
-    NotObject(),
-    #[error("Missing required attributes.")]
-    MissingRequiredAttribute(String),
+    ArrowError(#[source] arrow::error::ArrowError),
+    #[error("There is not data available in the buffer.")]
+    EmptyBufferError(),
 }
 pub trait RecordBatchExt {
     type Error;
@@ -15,27 +13,20 @@ pub trait RecordBatchExt {
 }
 
 impl RecordBatchExt for String {
-    type Error = Error;
+    type Error = RecordBatchError;
     fn to_recordbatch(&self) -> Result<arrow::array::RecordBatch, Self::Error> {
         let reader = BufReader::new(self.as_bytes());
-        let (schema, _) = arrow_json::reader::infer_json_schema(reader, None).unwrap();
+        let (schema, _) = arrow_json::reader::infer_json_schema(reader, None)
+            .map_err(RecordBatchError::ArrowError)?;
 
         let reader = BufReader::new(self.as_bytes());
-        let record_batch = arrow_json::ReaderBuilder::new(Arc::new(schema))
+        let reader_result = arrow_json::ReaderBuilder::new(Arc::new(schema))
             .build(reader)
-            .unwrap()
+            .map_err(RecordBatchError::ArrowError)?
             .next()
-            .unwrap()
-            .unwrap();
+            .ok_or_else(RecordBatchError::EmptyBufferError)?;
 
-        Ok(record_batch)
-    }
-}
-
-impl RecordBatchExt for serde_json::Value {
-    type Error = Error;
-    fn to_recordbatch(&self) -> Result<arrow::array::RecordBatch, Self::Error> {
-        let record_batch = self.to_string().to_recordbatch().unwrap();
-        Ok(record_batch)
+        let recordbatch = reader_result.map_err(RecordBatchError::ArrowError)?;
+        Ok(recordbatch)
     }
 }
