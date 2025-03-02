@@ -18,11 +18,11 @@ pub enum PublisherError {
     #[error("There was an error with Salesforce authentication.")]
     SalesforceAuthError(#[source] crate::client::Error),
     #[error("There was an error with parsing a given value.")]
-    SerdeError(#[source] flowgen_core::serde::Error),
+    SerdeError(#[source] flowgen_core::serde::SerdeError),
     #[error("There was an error with parsing a given value.")]
     SerdeJsonError(#[source] serde_json::error::Error),
     #[error("There was an error with rendering a given value.")]
-    RenderError(#[source] flowgen_core::render::Error),
+    RenderError(#[source] flowgen_core::render::RenderError),
     #[error("Missing required event attrubute.")]
     MissingRequiredAttributeError(String),
 }
@@ -104,7 +104,6 @@ impl flowgen_core::publisher::Publisher for Publisher {
                     .to_value()
                     .map_err(PublisherError::SerdeError)?;
 
-                println!("{:?}", payload);
                 let mut publish_payload: Map<String, Value> = Map::new();
                 for (k, v) in payload.as_object().unwrap() {
                     publish_payload.insert(k.to_owned(), v.to_owned());
@@ -178,14 +177,14 @@ impl PublisherBuilder {
 
     pub async fn build(self) -> Result<Publisher, PublisherError> {
         Ok(Publisher {
-            service: self
-                .service
-                .ok_or_else(|| PublisherError::MissingRequiredAttributeError("data".to_string()))?,
+            service: self.service.ok_or_else(|| {
+                PublisherError::MissingRequiredAttributeError("service".to_string())
+            })?,
             config: self.config.ok_or_else(|| {
-                PublisherError::MissingRequiredAttributeError("subject".to_string())
+                PublisherError::MissingRequiredAttributeError("config".to_string())
             })?,
             rx: self.rx.ok_or_else(|| {
-                PublisherError::MissingRequiredAttributeError("subject".to_string())
+                PublisherError::MissingRequiredAttributeError("receiver".to_string())
             })?,
             current_task_id: self.current_task_id,
         })
