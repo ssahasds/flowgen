@@ -1,7 +1,6 @@
 use glob::glob;
 use std::env;
 use std::process;
-use std::result;
 use tracing::error;
 use tracing::event;
 use tracing::Level;
