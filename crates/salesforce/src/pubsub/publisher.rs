@@ -22,15 +22,15 @@ pub enum Error {
     SalesforcePubSub(#[source] super::context::Error),
     #[error("error with Salesforce authentication")]
     SalesforceAuth(#[source] crate::client::Error),
-    #[error("error with parsing a given value.")]
+    #[error("error with parsing a given value")]
     Serde(#[source] flowgen_core::serde::Error),
-    #[error("error with parsing a given value.")]
+    #[error("error with parsing a given value")]
     SerdeJson(#[source] serde_json::error::Error),
-    #[error("error with rendering a given value.")]
+    #[error("error with rendering a given value")]
     Render(#[source] flowgen_core::render::Error),
     #[error("error with processing recordbatch")]
     RecordBatch(#[source] flowgen_core::recordbatch::Error),
-    #[error("Missing required event attrubute.")]
+    #[error("missing required event attrubute")]
     MissingRequiredAttribute(String),
     #[error("error with sending event over channel")]
     SendMessage(#[source] tokio::sync::broadcast::error::SendError<Event>),
@@ -167,7 +167,6 @@ impl flowgen_core::publisher::Publisher for Publisher {
 
 #[derive(Default)]
 pub struct PublisherBuilder {
-    service: Option<flowgen_core::service::Service>,
     config: Option<Arc<super::config::Target>>,
     rx: Option<Receiver<Event>>,
     current_task_id: usize,
@@ -178,11 +177,6 @@ impl PublisherBuilder {
         PublisherBuilder {
             ..Default::default()
         }
-    }
-
-    pub fn service(mut self, service: flowgen_core::service::Service) -> Self {
-        self.service = Some(service);
-        self
     }
 
     pub fn config(mut self, config: Arc<super::config::Target>) -> Self {

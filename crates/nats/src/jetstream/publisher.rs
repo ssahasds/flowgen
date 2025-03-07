@@ -1,7 +1,9 @@
-use std::time::Duration;
-
+use super::message::FlowgenMessageExt;
 use async_nats::jetstream::stream::{Config, DiscardPolicy, RetentionPolicy};
-use flowgen_core::client::Client;
+use flowgen_core::{client::Client, event::Event};
+use std::{sync::Arc, time::Duration};
+use tokio::sync::broadcast::Receiver;
+use tracing::{event, Level};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -17,26 +19,23 @@ pub enum Error {
     NatsGetStream(#[source] async_nats::jetstream::context::GetStreamError),
     #[error("failed to get process request to NATS Server")]
     NatsRequest(#[source] async_nats::jetstream::context::RequestError),
+    #[error("error with NATS JetStream Event")]
+    NatsJetStreamEvent(#[source] super::message::Error),
+    #[error("missing required event attrubute")]
+    MissingRequiredAttribute(String),
 }
 
 pub struct Publisher {
-    pub jetstream: async_nats::jetstream::Context,
+    config: Arc<super::config::Target>,
+    rx: Receiver<Event>,
+    current_task_id: usize,
 }
 
-pub struct Builder {
-    config: super::config::Target,
-}
-
-impl Builder {
-    // Creates a new instance of a Builder.
-    pub fn new(config: super::config::Target) -> Builder {
-        Builder { config }
-    }
-
-    pub async fn build(self) -> Result<Publisher, Error> {
-        // Connect to Nats Server.
+impl flowgen_core::publisher::Publisher for Publisher {
+    type Error = Error;
+    async fn publish(mut self) -> Result<(), Self::Error> {
         let client = crate::client::ClientBuilder::new()
-            .credentials_path(self.config.credentials.into())
+            .credentials_path(self.config.credentials.clone().into())
             .build()
             .map_err(Error::NatsClientAuth)?
             .connect()
@@ -49,10 +48,9 @@ impl Builder {
                 max_age = config_max_age
             }
 
-            // Create or update stream according to config.
             let mut stream_config = Config {
                 name: self.config.stream.clone(),
-                description: self.config.stream_description,
+                description: self.config.stream_description.clone(),
                 max_messages_per_subject: 1,
                 subjects: self.config.subjects.clone(),
                 discard: DiscardPolicy::Old,
@@ -61,7 +59,7 @@ impl Builder {
                 ..Default::default()
             };
 
-            let stream = jetstream.get_stream(self.config.stream).await;
+            let stream = jetstream.get_stream(self.config.stream.clone()).await;
 
             match stream {
                 Ok(_) => {
@@ -74,7 +72,7 @@ impl Builder {
                         .subjects
                         .clone();
 
-                    subjects.extend(self.config.subjects);
+                    subjects.extend(self.config.subjects.clone());
                     subjects.sort();
                     subjects.dedup();
                     stream_config.subjects = subjects;
@@ -92,9 +90,61 @@ impl Builder {
                 }
             }
 
-            Ok(Publisher { jetstream })
-        } else {
-            Err(Error::MissingNatsClient())
+            while let Ok(e) = self.rx.recv().await {
+                if e.current_task_id == Some(self.current_task_id - 1) {
+                    let event = e.to_publish().map_err(Error::NatsJetStreamEvent)?;
+
+                    jetstream
+                        .send_publish(e.subject.clone(), event)
+                        .await
+                        .map_err(Error::NatsPublish)?;
+
+                    event!(Level::INFO, "event processed: {}", e.subject);
+                }
+            }
         }
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub struct PublisherBuilder {
+    config: Option<Arc<super::config::Target>>,
+    rx: Option<Receiver<Event>>,
+    current_task_id: usize,
+}
+
+impl PublisherBuilder {
+    pub fn new() -> PublisherBuilder {
+        PublisherBuilder {
+            ..Default::default()
+        }
+    }
+
+    pub fn config(mut self, config: Arc<super::config::Target>) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    pub fn receiver(mut self, receiver: Receiver<Event>) -> Self {
+        self.rx = Some(receiver);
+        self
+    }
+
+    pub fn current_task_id(mut self, current_task_id: usize) -> Self {
+        self.current_task_id = current_task_id;
+        self
+    }
+
+    pub async fn build(self) -> Result<Publisher, Error> {
+        Ok(Publisher {
+            config: self
+                .config
+                .ok_or_else(|| Error::MissingRequiredAttribute("config".to_string()))?,
+            rx: self
+                .rx
+                .ok_or_else(|| Error::MissingRequiredAttribute("receiver".to_string()))?,
+            current_task_id: self.current_task_id,
+        })
     }
 }
