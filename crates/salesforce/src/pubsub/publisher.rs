@@ -13,6 +13,8 @@ use tokio::sync::{broadcast::Receiver, Mutex};
 use tracing::{event, Level};
 
 const DEFAULT_MESSAGE_SUBJECT: &str = "salesforce.pubsub.out";
+const DEFAULT_PUBSUB_URI: &str = "https://api.pubsub.salesforce.com";
+const DEFAULT_PUBSUB_PORT: &str = "443";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -20,24 +22,25 @@ pub enum Error {
     SalesforcePubSub(#[source] super::context::Error),
     #[error("error with Salesforce authentication")]
     SalesforceAuth(#[source] crate::client::Error),
-    #[error("error with parsing a given value.")]
+    #[error("error with parsing a given value")]
     Serde(#[source] flowgen_core::serde::Error),
-    #[error("error with parsing a given value.")]
+    #[error("error with parsing a given value")]
     SerdeJson(#[source] serde_json::error::Error),
-    #[error("error with rendering a given value.")]
+    #[error("error with rendering a given value")]
     Render(#[source] flowgen_core::render::Error),
     #[error("error with processing recordbatch")]
     RecordBatch(#[source] flowgen_core::recordbatch::Error),
-    #[error("Missing required event attrubute.")]
+    #[error("missing required event attrubute")]
     MissingRequiredAttribute(String),
     #[error("error with sending event over channel")]
     SendMessage(#[source] tokio::sync::broadcast::error::SendError<Event>),
     #[error("error with creating event")]
     Event(#[source] flowgen_core::event::Error),
+    #[error("error setting up flowgen grpc service")]
+    Service(#[source] flowgen_core::service::Error),
 }
 
 pub struct Publisher {
-    service: flowgen_core::service::Service,
     config: Arc<super::config::Target>,
     rx: Receiver<Event>,
     current_task_id: usize,
@@ -48,15 +51,24 @@ impl flowgen_core::publisher::Publisher for Publisher {
     async fn publish(mut self) -> Result<(), Self::Error> {
         let config = self.config.as_ref();
         let a = Path::new(&config.credentials);
+
+        let service = flowgen_core::service::ServiceBuilder::new()
+            .endpoint(format!("{0}:{1}", DEFAULT_PUBSUB_URI, DEFAULT_PUBSUB_PORT))
+            .build()
+            .map_err(Error::Service)?
+            .connect()
+            .await
+            .map_err(Error::Service)?;
+
         let sfdc_client = crate::client::Builder::new()
-            .with_credentials_path(a.to_path_buf())
+            .credentials_path(a.to_path_buf())
             .build()
             .map_err(Error::SalesforceAuth)?
             .connect()
             .await
             .map_err(Error::SalesforceAuth)?;
 
-        let pubsub = super::context::Builder::new(self.service)
+        let pubsub = super::context::Builder::new(service)
             .with_client(sfdc_client)
             .build()
             .map_err(Error::SalesforcePubSub)?;
@@ -155,7 +167,6 @@ impl flowgen_core::publisher::Publisher for Publisher {
 
 #[derive(Default)]
 pub struct PublisherBuilder {
-    service: Option<flowgen_core::service::Service>,
     config: Option<Arc<super::config::Target>>,
     rx: Option<Receiver<Event>>,
     current_task_id: usize,
@@ -166,11 +177,6 @@ impl PublisherBuilder {
         PublisherBuilder {
             ..Default::default()
         }
-    }
-
-    pub fn service(mut self, service: flowgen_core::service::Service) -> Self {
-        self.service = Some(service);
-        self
     }
 
     pub fn config(mut self, config: Arc<super::config::Target>) -> Self {
@@ -190,9 +196,6 @@ impl PublisherBuilder {
 
     pub async fn build(self) -> Result<Publisher, Error> {
         Ok(Publisher {
-            service: self
-                .service
-                .ok_or_else(|| Error::MissingRequiredAttribute("service".to_string()))?,
             config: self
                 .config
                 .ok_or_else(|| Error::MissingRequiredAttribute("config".to_string()))?,

@@ -27,6 +27,7 @@ url = "2.5.2"
 flowgen_core = { path = "../core" }
 arrow = "54.0.0"
 async-nats = "0.35.1"
+tracing = { workspace = true }
 
 [build-dependencies]
 tonic-build = "0.10.2"

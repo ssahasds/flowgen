@@ -4,6 +4,7 @@ use flowgen_core::{client::Client, event::Event};
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::broadcast::Sender, time};
 use tokio_stream::StreamExt;
+use tracing::{event, Level};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -76,6 +77,8 @@ impl Subscriber {
                         let mut e = message.to_event().map_err(Error::NatsJetStreamMessage)?;
                         message.ack().await.map_err(Error::Other)?;
                         e.current_task_id = Some(self.current_task_id);
+
+                        event!(Level::INFO, "event processed: {}", e.subject);
                         self.tx.send(e).map_err(Error::SendMessage)?;
                     }
                 }
