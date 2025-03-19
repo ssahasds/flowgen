@@ -26,6 +26,8 @@ pub enum Error {
     NatsJetStreamSubscriber(#[source] flowgen_nats::jetstream::subscriber::Error),
     #[error("error with file subscriber")]
     FileSubscriber(#[source] flowgen_file::subscriber::Error),
+    #[error("error with generate subscriber")]
+    GenerateSubscriber(#[source] flowgen_generate::subscriber::Error),
 }
 
 #[derive(Debug)]
@@ -75,6 +77,24 @@ impl Flow {
                                 .subscribe()
                                 .await
                                 .map_err(Error::NatsJetStreamSubscriber)?;
+                            Ok(())
+                        });
+                        handle_list.push(handle);
+                    }
+                    config::Source::generate(config) => {
+                        let config = Arc::new(config.to_owned());
+                        let tx = tx.clone();
+                        let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                            flowgen_generate::subscriber::SubscriberBuilder::new()
+                                .config(config)
+                                .sender(tx)
+                                .current_task_id(i)
+                                .build()
+                                .await
+                                .map_err(Error::GenerateSubscriber)?
+                                .subscribe()
+                                .await
+                                .map_err(Error::GenerateSubscriber)?;
                             Ok(())
                         });
                         handle_list.push(handle);

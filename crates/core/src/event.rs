@@ -1,7 +1,7 @@
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    #[error("missing required attributes")]
+    #[error("missing required attribute")]
     MissingRequiredAttribute(String),
 }
 

@@ -2040,6 +2040,7 @@ dependencies = [
  "flowgen_core",
  "flowgen_deltalake",
  "flowgen_file",
+ "flowgen_generate",
  "flowgen_http",
  "flowgen_nats",
  "flowgen_salesforce",
@@ -2132,6 +2133,32 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tonic-build",
+ "url",
+]
+
+[[package]]
+name = "flowgen_generate"
+version = "0.0.1"
+dependencies = [
+ "arrow 54.0.0",
+ "arrow-json 54.0.0",
+ "bytes",
+ "chrono",
+ "flowgen_core",
+ "futures-util",
+ "handlebars",
+ "oauth2",
+ "prost 0.12.6",
+ "prost-types",
+ "reqwest 0.12.11",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic",
+ "tracing",
  "url",
 ]
 
