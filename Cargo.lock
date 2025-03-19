@@ -2140,10 +2140,8 @@ dependencies = [
 name = "flowgen_generate"
 version = "0.0.1"
 dependencies = [
- "arrow-json 54.0.0",
  "chrono",
  "flowgen_core",
- "handlebars",
  "serde",
  "thiserror 1.0.69",
  "tokio",
