@@ -15,7 +15,7 @@ use tokio::{
 };
 use tracing::{event, Level};
 
-const DEFAULT_MESSAGE_SUBJECT: &str = "http.response.out";
+const DEFAULT_MESSAGE_SUBJECT: &str = "http.response";
 
 #[derive(Deserialize, Serialize)]
 struct Credentials {
@@ -110,7 +110,15 @@ impl Processor {
                         .map_err(Error::RecordBatch)?;
 
                     let timestamp = Utc::now().timestamp_micros();
-                    let subject = format!("{}.{}", DEFAULT_MESSAGE_SUBJECT, timestamp);
+                    let subject = match &config.label {
+                        Some(label) => format!(
+                            "{}.{}.{}",
+                            DEFAULT_MESSAGE_SUBJECT,
+                            label.to_lowercase(),
+                            timestamp
+                        ),
+                        None => format!("{}.{}", DEFAULT_MESSAGE_SUBJECT, timestamp),
+                    };
 
                     let e = EventBuilder::new()
                         .data(recordbatch)

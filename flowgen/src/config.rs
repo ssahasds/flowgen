@@ -23,6 +23,7 @@ pub enum Source {
     file(flowgen_file::config::Source),
     salesforce_pubsub(flowgen_salesforce::pubsub::config::Source),
     nats_jetstream(flowgen_nats::jetstream::config::Source),
+    generate(flowgen_generate::config::Source),
 }
 
 #[derive(PartialEq, Clone, Debug, Deserialize, Serialize)]
@@ -34,6 +35,7 @@ pub enum Processor {
 #[derive(PartialEq, Clone, Debug, Deserialize, Serialize)]
 #[allow(non_camel_case_types)]
 pub enum Target {
+    file(flowgen_file::config::Target),
     nats_jetstream(flowgen_nats::jetstream::config::Target),
     deltalake(flowgen_deltalake::config::Target),
     salesforce_pubsub(flowgen_salesforce::pubsub::config::Target),

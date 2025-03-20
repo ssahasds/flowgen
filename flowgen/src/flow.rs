@@ -26,6 +26,10 @@ pub enum Error {
     NatsJetStreamSubscriber(#[source] flowgen_nats::jetstream::subscriber::Error),
     #[error("error with file subscriber")]
     FileSubscriber(#[source] flowgen_file::subscriber::Error),
+    #[error("error with file publisher")]
+    FilePublisher(#[source] flowgen_file::publisher::Error),
+    #[error("error with generate subscriber")]
+    GenerateSubscriber(#[source] flowgen_generate::subscriber::Error),
 }
 
 #[derive(Debug)]
@@ -43,6 +47,24 @@ impl Flow {
         for (i, task) in config.flow.tasks.iter().enumerate() {
             match task {
                 Task::source(source) => match source {
+                    config::Source::file(config) => {
+                        let config = Arc::new(config.to_owned());
+                        let tx = tx.clone();
+                        let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                            flowgen_file::subscriber::SubscriberBuilder::new()
+                                .config(config)
+                                .sender(tx)
+                                .current_task_id(i)
+                                .build()
+                                .await
+                                .map_err(Error::FileSubscriber)?
+                                .subscribe()
+                                .await
+                                .map_err(Error::FileSubscriber)?;
+                            Ok(())
+                        });
+                        handle_list.push(handle);
+                    }
                     config::Source::salesforce_pubsub(config) => {
                         let config = Arc::new(config.to_owned());
                         let tx = tx.clone();
@@ -79,7 +101,24 @@ impl Flow {
                         });
                         handle_list.push(handle);
                     }
-                    _ => {}
+                    config::Source::generate(config) => {
+                        let config = Arc::new(config.to_owned());
+                        let tx = tx.clone();
+                        let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                            flowgen_generate::subscriber::SubscriberBuilder::new()
+                                .config(config)
+                                .sender(tx)
+                                .current_task_id(i)
+                                .build()
+                                .await
+                                .map_err(Error::GenerateSubscriber)?
+                                .subscribe()
+                                .await
+                                .map_err(Error::GenerateSubscriber)?;
+                            Ok(())
+                        });
+                        handle_list.push(handle);
+                    }
                 },
                 Task::processor(processor) => match processor {
                     config::Processor::http(config) => {
@@ -105,6 +144,24 @@ impl Flow {
                     }
                 },
                 Task::target(target) => match target {
+                    config::Target::file(config) => {
+                        let config = Arc::new(config.to_owned());
+                        let rx = tx.subscribe();
+                        let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                            flowgen_file::publisher::PublisherBuilder::new()
+                                .config(config)
+                                .receiver(rx)
+                                .current_task_id(i)
+                                .build()
+                                .await
+                                .map_err(Error::FilePublisher)?
+                                .publish()
+                                .await
+                                .map_err(Error::FilePublisher)?;
+                            Ok(())
+                        });
+                        handle_list.push(handle);
+                    }
                     config::Target::nats_jetstream(config) => {
                         let config = Arc::new(config.to_owned());
                         let rx = tx.subscribe();
