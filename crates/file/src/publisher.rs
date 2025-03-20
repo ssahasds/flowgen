@@ -6,6 +6,8 @@ use std::{fs::File, sync::Arc};
 use tokio::{sync::broadcast::Receiver, task::JoinHandle};
 use tracing::{event, Level};
 
+const DEFAULT_MESSAGE_SUBJECT: &str = "file.out";
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("error opening/creating file")]
@@ -40,14 +42,19 @@ impl flowgen_core::publisher::Publisher for Publisher {
                         .map_err(Error::Arrow)?;
 
                     let timestamp = Utc::now().timestamp_micros();
-                    let filename = match &config.path.split("/").last() {
-                        Some(filename) => filename,
-                        None => "filename",
+                    let subject = match &config.path.split("/").last() {
+                        Some(filename) => {
+                            format!(
+                                "{}.{}.{}",
+                                DEFAULT_MESSAGE_SUBJECT,
+                                filename.to_lowercase(),
+                                timestamp
+                            )
+                        }
+                        None => format!("{}.{}", DEFAULT_MESSAGE_SUBJECT, timestamp),
                     };
 
-                    let subject = format!("{}.{}", filename, timestamp);
-
-                    event!(Level::INFO, "event processed: {}", subject);
+                    event!(Level::INFO, "event published: {}", subject);
                 }
                 Ok(())
             });

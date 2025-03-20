@@ -8,7 +8,6 @@ use oauth2::{
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use tracing::{event, Level};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -68,7 +67,6 @@ impl flowgen_core::client::Client for Client {
             .await
             .map_err(|e| Error::Other(e.to_string()))?;
 
-        event!(Level::INFO, "event: connected");
         self.token_result = Some(token_result);
         Ok(self)
     }

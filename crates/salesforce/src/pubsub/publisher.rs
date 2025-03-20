@@ -158,7 +158,7 @@ impl flowgen_core::publisher::Publisher for Publisher {
                 let topic = topic_info.topic_name.replace('/', ".").to_lowercase();
                 let subject = format!("{}.{}.{}", DEFAULT_MESSAGE_SUBJECT, &topic[1..], timestamp);
 
-                event!(Level::INFO, "event processed: {}", subject);
+                event!(Level::INFO, "event published: {}", subject);
             }
         }
         Ok(())

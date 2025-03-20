@@ -15,7 +15,7 @@ use tokio::{
 };
 use tracing::{event, Level};
 
-const DEFAULT_MESSAGE_SUBJECT: &str = "http.response.out";
+const DEFAULT_MESSAGE_SUBJECT: &str = "http.response";
 
 #[derive(Deserialize, Serialize)]
 struct Credentials {

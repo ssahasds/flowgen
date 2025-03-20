@@ -53,7 +53,7 @@ impl Subscriber {
                 .build()
                 .map_err(Error::Event)?;
 
-            event!(Level::INFO, "event processed: {}", e.subject);
+            event!(Level::INFO, "event received: {}", e.subject);
             self.tx.send(e).map_err(Error::SendMessage)?;
 
             match self.config.count {
