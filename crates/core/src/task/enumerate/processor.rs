@@ -1,6 +1,6 @@
 use crate::{
-    conversion::recordbatch::RecordBatchExt,
-    event::{Event, EventBuilder},
+    convert::recordbatch::RecordBatchExt,
+    stream::event::{Event, EventBuilder},
 };
 use chrono::Utc;
 use std::sync::Arc;
@@ -11,20 +11,12 @@ const DEFAULT_MESSAGE_SUBJECT: &str = "enumerate";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("error with reading file")]
-    IO(#[source] std::io::Error),
-    #[error("error with executing async task")]
-    TaskJoin(#[source] tokio::task::JoinError),
     #[error("error with sending event over channel")]
     SendMessage(#[source] tokio::sync::broadcast::error::SendError<Event>),
     #[error("error with creating event")]
-    Event(#[source] crate::event::Error),
-    #[error("error with parsing credentials file")]
-    ParseCredentials(#[source] serde_json::Error),
-    #[error("error with processing recordbatch")]
-    RecordBatch(#[source] crate::conversion::recordbatch::Error),
-    #[error("error with rendering content")]
-    Render(#[source] crate::conversion::render::Error),
+    Event(#[source] crate::stream::event::Error),
+    #[error("error with processing Record Batch")]
+    RecordBatch(#[source] crate::convert::recordbatch::Error),
     #[error("missing required attrubute")]
     MissingRequiredAttribute(String),
 }
@@ -41,12 +33,12 @@ impl Processor {
             if event.current_task_id == Some(self.current_task_id - 1) {
                 let data = self.config.array.extract(&event.data, &event.extensions);
                 if let Ok(data) = data {
-                    // let obj = data.get(0).unwrap().as_object().unwrap();
-                    // for (_, v) in obj {
                     let arr = data.as_array().unwrap().iter().enumerate();
                     for (i, el) in arr {
-                        let recordbatch = el.to_string().to_recordbatch().unwrap();
-
+                        let recordbatch = el
+                            .to_string()
+                            .to_recordbatch()
+                            .map_err(Error::RecordBatch)?;
                         let timestamp = Utc::now().timestamp_micros();
                         let subject = match &self.config.label {
                             Some(label) => format!(

@@ -1,3 +1,4 @@
+use crate::convert::serde::SerdeValueExt;
 use arrow::{
     array::{Array, ListArray, RecordBatch, StringArray},
     datatypes::{DataType, Field, Schema},
@@ -6,15 +7,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 
-use crate::conversion::serde::SerdeValueExt;
-
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
     #[error("error with an Apache Arrow data")]
     Arrow(#[source] arrow::error::ArrowError),
     #[error("error with converting data to Serde Value")]
-    SerdeValue(#[source] crate::conversion::serde::Error),
+    SerdeValue(#[source] crate::convert::serde::Error),
     #[error("no data available in the array")]
     EmptyArray(),
 }

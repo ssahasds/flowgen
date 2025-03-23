@@ -1,6 +1,6 @@
 use crate::{
-    conversion::recordbatch::RecordBatchExt,
-    event::{Event, EventBuilder},
+    convert::recordbatch::RecordBatchExt,
+    stream::event::{Event, EventBuilder},
 };
 use chrono::Utc;
 use std::{sync::Arc, time::Duration};
@@ -14,9 +14,9 @@ pub enum Error {
     #[error("error with sending event over channel")]
     SendMessage(#[source] tokio::sync::broadcast::error::SendError<Event>),
     #[error("error with creating event")]
-    Event(#[source] crate::event::Error),
+    Event(#[source] crate::stream::event::Error),
     #[error("error with processing recordbatch")]
-    RecordBatch(#[source] crate::conversion::recordbatch::Error),
+    RecordBatch(#[source] crate::convert::recordbatch::Error),
     #[error("missing required attrubute")]
     MissingRequiredAttribute(String),
 }

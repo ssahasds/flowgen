@@ -1,6 +1,6 @@
 use super::config;
 use crate::config::Task;
-use flowgen_core::{event::Event, publisher::Publisher};
+use flowgen_core::stream::{event::Event, publisher::Publisher};
 use std::{path::PathBuf, sync::Arc};
 use tokio::{
     sync::broadcast::{Receiver, Sender},
