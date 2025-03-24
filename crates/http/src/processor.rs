@@ -4,6 +4,7 @@ use flowgen_core::{
     stream::event::{Event, EventBuilder},
 };
 use futures_util::future::try_join_all;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::sync::Arc;
@@ -38,9 +39,19 @@ pub enum Error {
     #[error("error with rendering content")]
     Render(#[source] flowgen_core::convert::render::Error),
     #[error("error with processing http request")]
-    Request(#[source] reqwest::Error),
+    Reqwest(#[source] reqwest::Error),
+    #[error("error with converting a key to header name")]
+    ReqwestInvalidHeaderName(#[source] reqwest::header::InvalidHeaderName),
+    #[error("error with converting a value to a header value")]
+    ReqwestInvalidHeaderValue(#[source] reqwest::header::InvalidHeaderValue),
+    #[error("error with parsing a given value")]
+    SerdeJson(#[source] serde_json::Error),
     #[error("missing required attrubute")]
     MissingRequiredAttribute(String),
+    #[error("provided attribute not found")]
+    NotFound(),
+    #[error("error parsing string to json")]
+    ParseJson(),
 }
 pub struct Processor {
     config: Arc<super::config::Processor>,
@@ -56,7 +67,7 @@ impl Processor {
         let client = reqwest::ClientBuilder::new()
             .https_only(true)
             .build()
-            .map_err(Error::Request)?;
+            .map_err(Error::Reqwest)?;
 
         let client = Arc::new(client);
 
@@ -67,6 +78,7 @@ impl Processor {
 
             let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
                 if event.current_task_id == Some(self.current_task_id - 1) {
+                    // Get input dynamic values.
                     let mut data = Map::new();
                     if let Some(inputs) = &config.inputs {
                         for (key, input) in inputs {
@@ -77,12 +89,40 @@ impl Processor {
                         }
                     }
 
+                    // Setup http client with endpoint according to chosen method.
                     let endpoint = config.endpoint.render(&data).map_err(Error::Render)?;
+                    let mut client = match config.method {
+                        crate::config::HttpMethod::GET => client.get(endpoint),
+                        crate::config::HttpMethod::POST => client.post(endpoint),
+                    };
 
-                    let client = client.get(endpoint);
-                    let mut resp = String::new();
+                    // Add headers if present in the config.
+                    if let Some(headers) = config.headers.to_owned() {
+                        let mut header_map = HeaderMap::new();
+                        for (key, value) in headers {
+                            let header_name = HeaderName::try_from(key)
+                                .map_err(Error::ReqwestInvalidHeaderName)?;
+                            let header_value = HeaderValue::try_from(value)
+                                .map_err(Error::ReqwestInvalidHeaderValue)?;
+                            header_map.insert(header_name, header_value);
+                        }
+                        client = client.headers(header_map);
+                    }
 
-                    if let Some(ref credentials) = config.credentials {
+                    // Set client body to json from the provided json string.
+                    if let Some(payload_json) = &config.payload_json {
+                        let key = payload_json.replace("{{", "").replace("}}", "");
+                        let json_string = data.get(&key).ok_or_else(Error::NotFound)?;
+                        let json = serde_json::from_str::<serde_json::Value>(
+                            json_string.as_str().ok_or_else(Error::ParseJson)?,
+                        )
+                        .map_err(Error::SerdeJson)?;
+
+                        client = client.json(&json);
+                    }
+
+                    // Set client auth method & credentials.
+                    if let Some(credentials) = &config.credentials {
                         let credentials_string =
                             fs::read_to_string(credentials).await.map_err(Error::IO)?;
 
@@ -90,19 +130,21 @@ impl Processor {
                             .map_err(Error::ParseCredentials)?;
 
                         if let Some(bearer_token) = credentials.bearer_auth {
-                            resp = client
-                                .bearer_auth(bearer_token)
-                                .send()
-                                .await
-                                .map_err(Error::Request)?
-                                .text()
-                                .await
-                                .map_err(Error::Request)?;
+                            client = client.bearer_auth(bearer_token);
                         }
                     };
 
-                    let recordbatch = resp.to_recordbatch().map_err(Error::RecordBatch)?;
+                    // Do API Call.
+                    let resp = client
+                        .send()
+                        .await
+                        .map_err(Error::Reqwest)?
+                        .text()
+                        .await
+                        .map_err(Error::Reqwest)?;
 
+                    // Prepare processor output.
+                    let recordbatch = resp.to_recordbatch().map_err(Error::RecordBatch)?;
                     let extensions = Value::Object(data)
                         .to_string()
                         .to_recordbatch()
