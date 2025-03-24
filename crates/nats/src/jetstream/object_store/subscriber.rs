@@ -1,18 +1,15 @@
-use async_nats::jetstream::{object_store::GetErrorKind, object_store::Config};
+use arrow::csv::reader::Format;
+use arrow::csv::ReaderBuilder;
+use async_nats::jetstream::{object_store::Config, object_store::GetErrorKind};
 use flowgen_core::{connect::client::Client, stream::event::Event};
+use std::sync::Arc;
+use tokio::io::AsyncReadExt;
 use tokio::sync::broadcast::Sender;
 use tokio_stream::StreamExt;
-use tokio::io::AsyncReadExt;
-use std::sync::Arc;
-use csv::ReaderBuilder;
-
-
-
 
 const DEFAULT_MESSAGE_SUBJECT: &str = "nats.object.store.in";
 const DEFAULT_BATCH_SIZE: usize = 1000;
 const DEFAULT_HAS_HEADER: bool = true;
-
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -54,7 +51,6 @@ pub enum Error {
     NatsObjectStoreWatchError(#[source] async_nats::jetstream::object_store::WatchError),
     #[error("error constructing Flowgen Event")]
     Event(#[source] flowgen_core::stream::event::Error),
-
 }
 
 pub struct Subscriber {
@@ -75,32 +71,59 @@ impl Subscriber {
 
         if let Some(jetstream) = client.jetstream {
             let bucket_name = self.config.bucket.clone();
-            let bucket = jetstream.create_object_store(Config {
+            let bucket = jetstream
+                .create_object_store(Config {
                     bucket: bucket_name.to_string(),
                     ..Default::default()
-            }).await.map_err(Error::NatsObjectStoreBucketError)?;
-            let mut objects_stream = bucket.list().await.map_err(Error::NatsObjectStoreWatchError)?;
+                })
+                .await
+                .map_err(Error::NatsObjectStoreBucketError)?;
+            let mut objects_stream = bucket
+                .list()
+                .await
+                .map_err(Error::NatsObjectStoreWatchError)?;
 
             while let Some(Ok(object)) = objects_stream.next().await {
                 let file_name = object.name;
 
                 // Fetch file from the bucket
-                let mut nats_obj_file = bucket.get(file_name.clone()).await.map_err(Error::NatsObjectStoreFileError)?;
-                
-                let mut buffer = vec![];
-                nats_obj_file.read_to_end(&mut buffer).await.map_err(Error::IO)?; 
+                let mut nats_obj_file = bucket
+                    .get(file_name.clone())
+                    .await
+                    .map_err(Error::NatsObjectStoreFileError)?;
 
-                // Convert buffer to string
-                let csv_content = String::from_utf8(buffer).map_err(Error::CSVFileReadError)?;
-                //print!("csv_content:: {:?}",csv_content);
-                let mut rdr = ReaderBuilder::new().from_reader(csv_content.as_bytes());
-                let header = rdr.byte_headers();
-                println!("header:: {:?}", header);
-                for result in rdr.records() {
-                        let record = result.map_err(Error::CSVLoopError)?;
-                        println!("record:: {:?}", record);
+                let mut buffer = vec![];
+                nats_obj_file
+                    .read_to_end(&mut buffer)
+                    .await
+                    .map_err(Error::IO)?;
+
+                let (schema, _) = Format::default()
+                    .with_header(true)
+                    .infer_schema(&mut buffer.as_slice(), Some(100))
+                    .map_err(Error::Arrow)?;
+                // buffer.rewind().map_err(Error::IO)?;
+
+                let csv = ReaderBuilder::new(Arc::new(schema.clone()))
+                    .with_header(DEFAULT_HAS_HEADER)
+                    .with_batch_size(DEFAULT_BATCH_SIZE)
+                    .build(buffer.as_slice())
+                    .map_err(Error::Arrow)?;
+
+                for batch in csv {
+                    println!("{:?}", batch);
                 }
-            }       
+                // // Convert buffer to string
+                // let csv_content = String::from_utf8(buffer).map_err(Error::CSVFileReadError)?;
+                // //print!("csv_content:: {:?}",csv_content);
+                // let mut rdr = ReaderBuilder::new().from_reader(csv_content.as_bytes());
+                // let header = rdr.byte_headers();
+                // println!("header:: {:?}", header);
+                // for result in rdr.records() {
+                //     let record = result.map_err(Error::CSVLoopError)?;
+                //     println!("record:: {:?}", record);
+                // }
+            }
         }
         Ok(())
     }
