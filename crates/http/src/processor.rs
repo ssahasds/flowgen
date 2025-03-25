@@ -20,6 +20,13 @@ const DEFAULT_MESSAGE_SUBJECT: &str = "http.response";
 #[derive(Deserialize, Serialize)]
 struct Credentials {
     bearer_auth: Option<String>,
+    basic_auth: Option<BasicAuth>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct BasicAuth {
+    username: String,
+    password: String,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -110,8 +117,8 @@ impl Processor {
                     }
 
                     // Set client body to json from the provided json string.
-                    if let Some(payload_json) = &config.payload_json {
-                        let key = payload_json.replace("{{", "").replace("}}", "");
+                    if let Some(payload_key) = &config.payload_json {
+                        let key = payload_key.replace("{{", "").replace("}}", "");
                         let json_string = data.get(&key).ok_or_else(Error::NotFound)?;
                         let json = serde_json::from_str::<serde_json::Value>(
                             json_string.as_str().ok_or_else(Error::ParseJson)?,
@@ -119,6 +126,21 @@ impl Processor {
                         .map_err(Error::SerdeJson)?;
 
                         client = client.json(&json);
+                    }
+
+                    // Set client body to url enconded from the provided json string.
+                    if let Some(payload_key) = &config.payload_url_encoded {
+                        let key = payload_key.replace("{{", "").replace("}}", "");
+                        let json_string = data.get(&key).ok_or_else(Error::NotFound)?;
+                        let json = serde_json::from_str::<serde_json::Value>(
+                            json_string.as_str().ok_or_else(Error::ParseJson)?,
+                        )
+                        .map_err(Error::SerdeJson)?;
+
+                        match json {
+                            Value::Object(map) => client = client.form(&map),
+                            _ => return Err(Error::ParseJson()),
+                        };
                     }
 
                     // Set client auth method & credentials.
@@ -131,6 +153,11 @@ impl Processor {
 
                         if let Some(bearer_token) = credentials.bearer_auth {
                             client = client.bearer_auth(bearer_token);
+                        }
+
+                        if let Some(basic_auth) = credentials.basic_auth {
+                            client =
+                                client.basic_auth(basic_auth.username, Some(basic_auth.password));
                         }
                     };
 

@@ -10,6 +10,7 @@ pub struct Processor {
     pub method: HttpMethod,
     pub payload: Option<Map<String, Value>>,
     pub payload_json: Option<String>,
+    pub payload_url_encoded: Option<String>,
     pub headers: Option<HashMap<String, String>>,
     pub credentials: Option<String>,
     pub inputs: Option<HashMap<String, Input>>,
