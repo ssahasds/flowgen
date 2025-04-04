@@ -31,6 +31,8 @@ pub enum Error {
     Event(#[source] flowgen_core::stream::event::Error),
     #[error("failed to get nats bucket")]
     NatsObjectStoreFileError(#[source] async_nats::error::Error<GetErrorKind>),
+    #[error("error with sending message over channel")]
+    SendMessage(#[source] tokio::sync::broadcast::error::SendError<Event>),
 }
 
 pub struct Subscriber {
@@ -50,7 +52,7 @@ impl Subscriber {
             .map_err(Error::NatsClient)?;
 
         if let Some(jetstream) = client.jetstream {
-            let bucket = jetstream.get_object_store(&self.config.input_bucket).await.map_err(Error::NatsObjectStoreBucketError)?;
+            let bucket = jetstream.get_object_store(&self.config.bucket).await.map_err(Error::NatsObjectStoreBucketError)?;
             let mut objects_stream = bucket
                 .list()
                 .await
@@ -78,9 +80,19 @@ impl Subscriber {
                     .infer_schema(&mut buffer.as_slice(), Some(100))
                     .map_err(Error::Arrow)?;
 
+                let batch_size = match self.config.batch_size {
+                        Some(batch_size) => batch_size,
+                        None => DEFAULT_BATCH_SIZE,
+                };
+        
+                let has_header = match self.config.has_header {
+                        Some(has_header) => has_header,
+                        None => DEFAULT_HAS_HEADER,
+                };
+
                 let csv = ReaderBuilder::new(Arc::new(schema.clone()))
-                    .with_header(DEFAULT_HAS_HEADER)
-                    .with_batch_size(DEFAULT_BATCH_SIZE)
+                    .with_header(has_header)
+                    .with_batch_size(batch_size)
                     .build(buffer.as_slice())
                     .map_err(Error::Arrow)?;
 
@@ -88,7 +100,7 @@ impl Subscriber {
                     let recordbatch = batch.map_err(Error::Arrow)?;
                     let timestamp = Utc::now().timestamp_micros();
                     let subject = format!("{}.{}.{}", DEFAULT_MESSAGE_SUBJECT, file_name, timestamp);
-
+                    print!("Subjetc:: {}",subject);
                     let e = EventBuilder::new()
                         .data(recordbatch)
                         .subject(subject)
@@ -97,12 +109,7 @@ impl Subscriber {
                         .map_err(Error::Event)?;
 
                     event!(Level::INFO, "event received: {}", e.subject);
-  
-                    let result  = self.tx.send(e);
-                    if let Err(err) = result {
-                       print!("error :: {}",err);
-                    }
-
+                    self.tx.send(e).map_err(Error::SendMessage)?;
                 }
             }
         }
