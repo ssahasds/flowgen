@@ -100,7 +100,6 @@ impl Subscriber {
                     let recordbatch = batch.map_err(Error::Arrow)?;
                     let timestamp = Utc::now().timestamp_micros();
                     let subject = format!("{}.{}.{}", DEFAULT_MESSAGE_SUBJECT, file_name, timestamp);
-                    print!("Subjetc:: {}",subject);
                     let e = EventBuilder::new()
                         .data(recordbatch)
                         .subject(subject)
@@ -108,8 +107,8 @@ impl Subscriber {
                         .build()
                         .map_err(Error::Event)?;
 
+                    self.tx.send(e.clone()).map_err(Error::SendMessage)?;
                     event!(Level::INFO, "event received: {}", e.subject);
-                    self.tx.send(e).map_err(Error::SendMessage)?;
                 }
             }
         }

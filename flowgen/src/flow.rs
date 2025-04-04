@@ -30,7 +30,7 @@ pub enum Error {
     FileSubscriber(#[source] flowgen_file::subscriber::Error),
     #[error("error with file publisher")]
     FilePublisher(#[source] flowgen_file::publisher::Error),
-    #[error("error with generate subscriber")]
+    #[error("error with nats bucket subscriber")]
     GenerateSubscriber(#[source] flowgen_core::task::generate::subscriber::Error),
     #[error("error with NATS JetStream Subscriber")]
     NatsJetStreamObjectStoreSubscriber(#[source] flowgen_nats::jetstream::object_store::subscriber::Error),
