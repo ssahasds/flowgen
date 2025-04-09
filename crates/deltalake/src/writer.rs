@@ -1,17 +1,19 @@
 use chrono::Utc;
 use deltalake::{
     kernel::{DataType, PrimitiveType, StructField},
+    operations::add_column::{self, AddColumnBuilder},
     parquet::{
         basic::{Compression, ZstdLevel},
         file::properties::WriterProperties,
     },
+    table,
     writer::{DeltaWriter, RecordBatchWriter},
     DeltaOps,
 };
 use flowgen_core::stream::event::Event;
 use futures_util::future::try_join_all;
-use std::collections::HashMap;
 use std::sync::Arc;
+use std::{collections::HashMap, vec};
 use tokio::{
     sync::{broadcast::Receiver, Mutex},
     task::JoinHandle,
@@ -55,21 +57,24 @@ impl flowgen_core::task::runner::Runner for Writer {
 
         let path = self.config.path.to_str().ok_or_else(Error::MissingPath)?;
 
-        let table =
-            match deltalake::open_table_with_storage_options(path, storage_options.clone()).await {
-                Ok(table) => table,
-                Err(_) => DeltaOps::try_from_uri_with_storage_options(&path, storage_options)
-                    .await
-                    .map_err(Error::DeltaTable)?
-                    .create()
-                    .with_columns(vec![StructField::new(
-                        "Id".to_string(),
-                        DataType::Primitive(PrimitiveType::String),
-                        true,
-                    )])
-                    .await
-                    .map_err(Error::DeltaTable)?,
+        let ops = DeltaOps::try_from_uri_with_storage_options(path, storage_options.clone())
+            .await
+            .map_err(Error::DeltaTable)?;
+
+        let mut columns = Vec::new();
+        for c in &self.config.columns {
+            let data_type = match c.data_type {
+                crate::config::DataType::Utf8 => DataType::Primitive(PrimitiveType::String),
             };
+            let struct_field = StructField::new(c.name.to_string(), data_type, c.nullable);
+            columns.push(struct_field);
+        }
+
+        let table = ops
+            .create()
+            .with_columns(columns)
+            .await
+            .map_err(Error::DeltaTable)?;
         let table = Arc::new(Mutex::new(table));
 
         while let Ok(event) = self.rx.recv().await {
