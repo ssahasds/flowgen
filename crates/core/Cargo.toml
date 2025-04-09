@@ -25,3 +25,4 @@ arrow-json = { workspace = true }
 tokio = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
+futures-util = { workspace = true }

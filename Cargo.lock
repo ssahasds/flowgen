@@ -2074,6 +2074,7 @@ dependencies = [
  "bincode",
  "bytes",
  "chrono",
+ "futures-util",
  "handlebars",
  "serde",
  "serde_json",

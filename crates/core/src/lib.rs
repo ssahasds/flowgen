@@ -23,4 +23,8 @@ pub mod task {
         pub mod config;
         pub mod subscriber;
     }
+    pub mod render {
+        pub mod config;
+        pub mod processor;
+    }
 }

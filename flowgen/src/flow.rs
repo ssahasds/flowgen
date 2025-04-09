@@ -33,8 +33,11 @@ pub enum Error {
     #[error("error with generate subscriber")]
     GenerateSubscriber(#[source] flowgen_core::task::generate::subscriber::Error),
     #[error("error with NATS JetStream Subscriber")]
-    NatsJetStreamObjectStoreSubscriber(#[source] flowgen_nats::jetstream::object_store::reader::Error),
-
+    NatsJetStreamObjectStoreSubscriber(
+        #[source] flowgen_nats::jetstream::object_store::reader::Error,
+    ),
+    #[error("error rendering content")]
+    RenderProcessor(#[source] flowgen_core::task::render::processor::Error),
 }
 
 #[derive(Debug)]
@@ -187,22 +190,21 @@ impl Flow {
                 }
                 Task::object_store_subscriber(config) => {
                     let config = Arc::new(config.to_owned());
-                        let tx = tx.clone();
-                        let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-                            flowgen_nats::jetstream::object_store::reader::ReaderBuilder::new()
-                                .config(config)
-                                .sender(tx)
-                                .current_task_id(i)
-                                .build()
-                                .await
-                                .map_err(Error::NatsJetStreamObjectStoreSubscriber)?
-                                .subscribe()
-                                .await
-                                .map_err(Error::NatsJetStreamObjectStoreSubscriber)?;
-                            Ok(())
-                        });
-                        handle_list.push(handle);
-
+                    let tx = tx.clone();
+                    let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                        flowgen_nats::jetstream::object_store::reader::ReaderBuilder::new()
+                            .config(config)
+                            .sender(tx)
+                            .current_task_id(i)
+                            .build()
+                            .await
+                            .map_err(Error::NatsJetStreamObjectStoreSubscriber)?
+                            .subscribe()
+                            .await
+                            .map_err(Error::NatsJetStreamObjectStoreSubscriber)?;
+                        Ok(())
+                    });
+                    handle_list.push(handle);
                 }
                 Task::salesforce_pubsub_subscriber(config) => {
                     let config = Arc::new(config.to_owned());
@@ -236,6 +238,27 @@ impl Flow {
                             .run()
                             .await
                             .map_err(Error::SalesforcePubsubPublisher)?;
+                        Ok(())
+                    });
+                    handle_list.push(handle);
+                }
+                Task::render(config) => {
+                    let config = Arc::new(config.to_owned());
+                    let rx = tx.subscribe();
+                    let tx = tx.clone();
+                    let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                        flowgen_core::task::render::processor::ProcessorBuilder::new()
+                            .config(config)
+                            .receiver(rx)
+                            .sender(tx)
+                            .current_task_id(i)
+                            .build()
+                            .await
+                            .map_err(Error::RenderProcessor)?
+                            .run()
+                            .await
+                            .map_err(Error::RenderProcessor)?;
+
                         Ok(())
                     });
                     handle_list.push(handle);
