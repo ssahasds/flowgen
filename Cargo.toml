@@ -28,3 +28,5 @@ url = { version = "2.5.2" }
 async-nats = { version = "0.35.1" }
 bincode = { version = "1.3.3" }
 tonic = { version = "0.10.2", features = ["tls-roots"] }
+deltalake = { version = "0.25", features = ["datafusion"] }
+deltalake-gcp = "0.9.0"

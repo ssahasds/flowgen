@@ -9,7 +9,6 @@ use deltalake::{
     DeltaOps, DeltaTable,
 };
 use flowgen_core::stream::event::Event;
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast::Receiver, Mutex};
@@ -19,22 +18,25 @@ const DEFAULT_MESSAGE_SUBJECT: &str = "deltalake.writer";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("error with processing Parquet file")]
-    Parquet(#[source] deltalake::parquet::errors::ParquetError),
+    #[error(transparent)]
+    Parquet(#[from] deltalake::parquet::errors::ParquetError),
     #[error(transparent)]
     DeltaTable(#[from] deltalake::DeltaTableError),
+    #[error(transparent)]
+    TaskJoin(#[from] tokio::task::JoinError),
     #[error("missing required event attrubute")]
     MissingRequiredAttribute(String),
-    #[error("error executing task to completion")]
-    TaskJoin(#[source] tokio::task::JoinError),
     #[error("missing required config value path")]
     MissingPath(),
+    #[error("missing required config value path")]
+    Missing(),
     #[error("no filename in provided path")]
     EmptyFileName(),
     #[error("no value in provided str")]
     EmptyStr(),
 }
 
+#[derive(Debug)]
 pub struct EventHandler {
     table: Arc<Mutex<DeltaTable>>,
     config: Arc<super::config::Writer>,
@@ -75,6 +77,7 @@ impl EventHandler {
         Ok(())
     }
 }
+
 #[derive(Debug)]
 pub struct Writer {
     config: Arc<super::config::Writer>,
@@ -85,34 +88,14 @@ pub struct Writer {
 impl flowgen_core::task::runner::Runner for Writer {
     type Error = Error;
     async fn run(mut self) -> Result<(), Error> {
-        deltalake_gcp::register_handlers(None);
-        let mut storage_options = HashMap::new();
-        storage_options.insert(
-            "google_service_account".to_string(),
-            self.config.credentials.clone(),
-        );
-
-        let path = self.config.path.to_str().ok_or_else(Error::MissingPath)?;
-
-        let ops = DeltaOps::try_from_uri_with_storage_options(path, storage_options.clone())
+        let client = super::client::ClientBuilder::new()
+            .credentials(self.config.credentials.clone())
+            .path(self.config.path.clone())
+            .columns(self.config.columns.clone())
+            .build()
             .await
-            .map_err(Error::DeltaTable)?;
-
-        let mut columns = Vec::new();
-        for c in &self.config.columns {
-            let data_type = match c.data_type {
-                crate::config::DataType::Utf8 => DataType::Primitive(PrimitiveType::String),
-            };
-            let struct_field = StructField::new(c.name.to_string(), data_type, c.nullable);
-            columns.push(struct_field);
-        }
-
-        let table = ops
-            .create()
-            .with_columns(columns)
-            .await
-            .map_err(Error::DeltaTable)?;
-        let table = Arc::new(Mutex::new(table));
+            .unwrap();
+        let table = client.table.unwrap();
 
         while let Ok(event) = self.rx.recv().await {
             if event.current_task_id == Some(self.current_task_id - 1) {
@@ -122,7 +105,7 @@ impl flowgen_core::task::runner::Runner for Writer {
                 let event_handler = EventHandler { table, config };
 
                 tokio::spawn(async move {
-                    // Process the events and in case of error raise event.
+                    // Process the events and in case of error log it.
                     if let Err(err) = event_handler.process(event).await {
                         event!(Level::ERROR, "{}", err);
                     }

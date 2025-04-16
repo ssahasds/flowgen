@@ -1,6 +1,5 @@
 use super::config;
 use crate::config::Task;
-use arrow::compute::kernels::take;
 use flowgen_core::{stream::event::Event, task::runner::Runner};
 use std::{path::PathBuf, sync::Arc};
 use tokio::{
