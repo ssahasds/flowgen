@@ -24,10 +24,10 @@
 //!    operation (Append or Merge using DataFusion), executes it, and logs the outcome.
 //! 7. Errors during client connection or event processing are logged using the `tracing` crate.
 
-use crate::event::EventExt;
+use crate::{event::EventExt, schema::SchemaExt};
 use chrono::Utc;
 use deltalake::{
-    arrow::datatypes::{DataType, Field, Schema, TimeUnit},
+    arrow::datatypes::Schema,
     datafusion::{datasource::MemTable, prelude::SessionContext},
     kernel::{StructField, StructType},
     parquet::{
@@ -54,9 +54,21 @@ const DEFAULT_SOURCE_ALIAS: &str = "source";
 /// Errors that can occur during the Delta Lake writing process.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// Error originating from the schema extension crate.
+    #[error(transparent)]
+    Schema(#[from] super::schema::Error),
+    /// Error originating when converting String to Serde JSON.
+    #[error(transparent)]
+    SerdeJson(#[from] serde_json::Error),
+    /// Error originating when converting String from Utf8.
+    #[error(transparent)]
+    FromUtf8(#[from] std::string::FromUtf8Error),
     /// Error originating from the event extension crate.
     #[error(transparent)]
     Event(#[from] super::event::Error),
+    /// Error originating from the event extension crate.
+    #[error("cache errors")]
+    Cache(),
     /// Error originating from the Apache Arrow crate.
     #[error(transparent)]
     Arrow(#[from] arrow::error::ArrowError),
@@ -227,33 +239,16 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Writer<T> {
     async fn run(mut self) -> Result<(), Error> {
         // Build a DeltaTable client with credentials and storage path.
         // Return thread-safe reference to use in the downstream components.
-
         let mut columns: Vec<StructField> = Vec::new();
         if let Some(cache_options) = &self.config.create_options.cache_options {
             if let Some(key) = &cache_options.retrieve_key {
-                let schema_bytes = self.cache.get(key).await.unwrap();
-                let schema_str = String::from_utf8(schema_bytes.to_vec()).unwrap();
-                let schema: Schema = serde_json::from_str(&schema_str).unwrap();
+                let schema_bytes = self.cache.get(key).await.map_err(|_| Error::Cache())?;
+                let schema_str =
+                    String::from_utf8(schema_bytes.to_vec()).map_err(Error::FromUtf8)?;
 
-                let adjusted_fields: Vec<Field> = schema
-                    .fields()
-                    .iter()
-                    .map(|field| {
-                        let new_data_type = match field.data_type() {
-                            DataType::Timestamp(TimeUnit::Millisecond, tz) => {
-                                DataType::Timestamp(TimeUnit::Microsecond, tz.clone())
-                            }
-                            other => other.clone(),
-                        };
-                        Field::new(field.name(), new_data_type, field.is_nullable())
-                            .with_metadata(field.metadata().clone())
-                    })
-                    .collect();
-
-                let new_schema =
-                    Schema::new(adjusted_fields).with_metadata(schema.metadata().clone());
-
-                let delta_schema = StructType::try_from(&new_schema).unwrap();
+                let schema: Schema = serde_json::from_str(&schema_str).map_err(Error::SerdeJson)?;
+                let new_schema = schema.adjust_data_precision().map_err(Error::Schema)?;
+                let delta_schema = StructType::try_from(&new_schema).map_err(Error::Arrow)?;
 
                 let struct_fields: Vec<StructField> = delta_schema.fields().cloned().collect();
                 columns = struct_fields;

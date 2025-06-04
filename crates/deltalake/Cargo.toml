@@ -16,6 +16,7 @@ futures = { workspace = true }
 futures-util = { workspace = true }
 reqwest = { workspace = true }
 flowgen_core = { path = "../core" }
+flowgen_nats = { path = "../nats" }
 handlebars = { workspace = true }
 arrow-json = { workspace = true }
 arrow = { workspace = true }

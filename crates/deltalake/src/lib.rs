@@ -11,3 +11,6 @@ pub mod writer;
 
 // Provides type extensions for flowgen_core::stream::Event.
 pub mod event;
+
+// Provides type extensions for apache_arrow::schema.
+pub mod schema;

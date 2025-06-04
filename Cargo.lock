@@ -1862,6 +1862,7 @@ dependencies = [
  "deltalake",
  "deltalake-gcp",
  "flowgen_core",
+ "flowgen_nats",
  "futures",
  "futures-util",
  "handlebars",
