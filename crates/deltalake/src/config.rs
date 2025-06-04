@@ -117,8 +117,9 @@ pub enum DataType {
     Date,
     /// Microsecond precision timestamp, adjusted to UTC.
     Timestamp,
-    /// Microsecond precision timestamp, no time zone.
-    TimestampNtz,
+    // Microsecond precision timestamp, no time zone.
+    // This is currently not supported accross Delta Lake environments.
+    // TimestampNtz,
 }
 
 /// Defines the write strategy or operation mode for the writer.

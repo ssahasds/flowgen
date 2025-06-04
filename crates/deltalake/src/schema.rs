@@ -1,9 +1,8 @@
 //! Utilities for adjusting Apache Arrow Schema timestamp precision.
-
 use deltalake::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
-// NOTE: `std::sync::Arc` is imported in your previous snippets but not used here.
-// If `Field` objects were being wrapped in `Arc` for `Schema::new`, it would be used.
-// Commenting based on the provided code where `adjusted_fields` is `Vec<Field>`.
+
+/// Default timezone setting for Timestamp columns.
+const DEFAULT_TIMESTAMP_TIMEZONE: &str = "UTC";
 
 /// Errors encountered during Schema precision adjustment.
 #[derive(thiserror::Error, Debug)]
@@ -50,9 +49,10 @@ impl SchemaExt for Schema {
             .map(|field| {
                 // `field` here is &Arc<Field> or &Field depending on Arrow version's iter details
                 let new_data_type = match field.data_type() {
-                    DataType::Timestamp(TimeUnit::Millisecond, tz) => {
-                        DataType::Timestamp(TimeUnit::Microsecond, tz.clone())
-                    }
+                    DataType::Timestamp(TimeUnit::Millisecond, _) => DataType::Timestamp(
+                        TimeUnit::Microsecond,
+                        Some(DEFAULT_TIMESTAMP_TIMEZONE.to_string().into()),
+                    ),
                     other => other.clone(),
                 };
 

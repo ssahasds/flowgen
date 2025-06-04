@@ -6,6 +6,9 @@ use deltalake::arrow::{
 };
 use std::sync::Arc;
 
+/// Default timezone setting for Timestamp columns.
+const DEFAULT_TIMESTAMP_TIMEZONE: &str = "UTC";
+
 /// Errors that can occur during event data processing and precision adjustment.
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
@@ -56,11 +59,14 @@ impl EventExt for flowgen_core::stream::event::Event {
 
         for (i, field) in schema.fields().iter().enumerate() {
             match field.data_type() {
-                DataType::Timestamp(TimeUnit::Millisecond, tz) => {
+                DataType::Timestamp(TimeUnit::Millisecond, _) => {
                     // Update schema field to microsecond precision.
                     new_fields.push(Arc::new(Field::new(
                         field.name(),
-                        DataType::Timestamp(TimeUnit::Microsecond, tz.clone()),
+                        DataType::Timestamp(
+                            TimeUnit::Microsecond,
+                            Some(DEFAULT_TIMESTAMP_TIMEZONE.to_string().into()),
+                        ),
                         field.is_nullable(),
                     )));
 
@@ -74,12 +80,17 @@ impl EventExt for flowgen_core::stream::event::Event {
 
                     let micros_data: Vec<Option<i64>> = millis_array
                         .iter()
-                        .map(|val| val.map(|ms| ms * 1000)) // Scale ms to µs.
+                        .map(|val| val.map(|ms| ms * 1000))
                         .collect();
 
-                    new_columns
-                        .push(Arc::new(TimestampMicrosecondArray::from(micros_data))
-                            as Arc<dyn Array>);
+                    // Create the array from numerical values (which defaults to no timezone in its DataType)
+                    let new_array_values = TimestampMicrosecondArray::from(micros_data);
+                    // Now, explicitly set the timezone for this array's DataType.
+                    // The underlying i64 values are assumed to represent UTC instants.
+                    let new_array_with_tz =
+                        new_array_values.with_timezone(DEFAULT_TIMESTAMP_TIMEZONE);
+
+                    new_columns.push(Arc::new(new_array_with_tz) as Arc<dyn Array>);
                 }
                 _ => {
                     new_fields.push(field.clone());
