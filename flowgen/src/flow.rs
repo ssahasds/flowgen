@@ -1,7 +1,10 @@
 use super::config;
 use crate::config::Task;
 use flowgen_core::{cache::Cache, stream::event::Event, task::runner::Runner};
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::{
     sync::broadcast::{Receiver, Sender},
     task::JoinHandle,
@@ -50,23 +53,23 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct Flow {
-    config_path: PathBuf,
-    cache_credential_path: PathBuf,
+pub struct Flow<'a> {
+    config_path: &'a Path,
+    cache_credential_path: &'a Path,
     pub task_list: Option<Vec<JoinHandle<Result<(), Error>>>>,
 }
 
-impl Flow {
+impl Flow<'_> {
     pub async fn run(mut self) -> Result<Self, Error> {
-        let c = std::fs::read_to_string(&self.config_path)
-            .map_err(|e| Error::OpenFile(e, self.config_path.clone()))?;
+        let c = std::fs::read_to_string(self.config_path)
+            .map_err(|e| Error::OpenFile(e, self.config_path.to_path_buf()))?;
         let config: config::Config = serde_json::from_str(&c).map_err(Error::ParseConfig)?;
 
         let mut task_list: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
         let (tx, _): (Sender<Event>, Receiver<Event>) = tokio::sync::broadcast::channel(1000);
 
         let cache = flowgen_nats::cache::CacheBuilder::new()
-            .credentials_path(self.cache_credential_path.clone())
+            .credentials_path(self.cache_credential_path.to_path_buf())
             .build()
             .unwrap()
             .init(DEFAULT_CACHE_NAME)
@@ -316,29 +319,27 @@ impl Flow {
 }
 
 #[derive(Default)]
-pub struct FlowBuilder {
-    config_path: Option<PathBuf>,
-    cache_credentials_path: Option<PathBuf>,
+pub struct FlowBuilder<'a> {
+    config_path: Option<&'a Path>,
+    cache_credentials_path: Option<&'a Path>,
 }
 
-impl FlowBuilder {
-    pub fn new() -> FlowBuilder {
-        FlowBuilder {
-            ..Default::default()
-        }
+impl<'a> FlowBuilder<'a> {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn config_path(mut self, config_path: PathBuf) -> Self {
-        self.config_path = Some(config_path);
+    pub fn config_path(mut self, path: &'a Path) -> Self {
+        self.config_path = Some(path);
         self
     }
 
-    pub fn cache_credentials_path(mut self, cache_credentials_path: PathBuf) -> Self {
-        self.cache_credentials_path = Some(cache_credentials_path);
+    pub fn cache_credentials_path(mut self, path: &'a Path) -> Self {
+        self.cache_credentials_path = Some(path);
         self
     }
 
-    pub fn build(self) -> Result<Flow, Error> {
+    pub fn build(self) -> Result<Flow<'a>, Error> {
         Ok(Flow {
             config_path: self
                 .config_path

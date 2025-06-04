@@ -1,5 +1,6 @@
 use glob::glob;
 use std::env;
+use std::path::PathBuf;
 use std::process;
 use tracing::error;
 use tracing::event;
@@ -12,6 +13,8 @@ async fn main() {
     let config_dir = env::var("CONFIG_DIR").expect("env variable CONFIG_DIR should be set");
     let cache_credentials_path = env::var("CACHE_CREDENTIALS_PATH")
         .expect("env variable CACHE_CREDENTIALS_PATH should be set");
+
+    let cache_credentials_path = PathBuf::from(cache_credentials_path);
 
     if let Ok(configs) = glob(&config_dir) {
         let num_configs = configs.count();
@@ -35,8 +38,8 @@ async fn main() {
         });
 
         let f = flowgen::flow::FlowBuilder::new()
-            .config_path(config_path)
-            .cache_credentials_path(cache_credentials_path.clone().into())
+            .config_path(&config_path)
+            .cache_credentials_path(&cache_credentials_path)
             .build()
             .unwrap_or_else(|err| {
                 error!("{:?}", err);
