@@ -73,16 +73,18 @@ impl flowgen_core::task::runner::Runner for Subscriber {
             .with_client(sfdc_client)
             .build()
             .map_err(Error::SalesforcePubSub)?;
+        let pubsub = Arc::new(Mutex::new(pubsub));
 
         let mut handle_list: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
-        let pubsub = Arc::new(Mutex::new(pubsub));
 
         for topic in self.config.topic_list.clone().iter() {
             let pubsub: Arc<Mutex<super::context::Context>> = Arc::clone(&pubsub);
             let topic = topic.clone();
             let tx = self.tx.clone();
+            let config = Arc::clone(&self.config);
 
             let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                let config = Arc::clone(&config);
                 let topic_info = pubsub
                     .lock()
                     .await
@@ -119,6 +121,16 @@ impl flowgen_core::task::runner::Runner for Subscriber {
                     match received {
                         Ok(fr) => {
                             for ce in fr.events {
+                                // Cache replay_id in durable consumer is set to be local.
+                                let should_cache_reply_id = config
+                                    .durable_consumer_options
+                                    .as_ref()
+                                    .is_some_and(|opts| opts.enabled && !opts.managed_subscription);
+
+                                if should_cache_reply_id {
+                                    // cache the replay_id here
+                                }
+
                                 if let Some(event) = ce.event {
                                     let schema: serde_avro_fast::Schema = schema_info
                                         .schema_json
