@@ -1,4 +1,5 @@
 use flowgen_core::{
+    cache::Cache,
     connect::client::Client,
     convert::recordbatch::RecordBatchExt,
     stream::event::{Event, EventBuilder},
@@ -42,15 +43,19 @@ pub enum Error {
     Service(#[source] flowgen_core::connect::service::Error),
     #[error("missing required attribute")]
     MissingRequiredAttribute(String),
+    #[error("cache errors")]
+    Cache(),
 }
 
-pub struct Subscriber {
+pub struct Subscriber<T: Cache> {
     config: Arc<super::config::Subscriber>,
     tx: Sender<Event>,
     current_task_id: usize,
+    /// The cache store used to put / retrieve schema etc.
+    cache: Arc<T>,
 }
 
-impl flowgen_core::task::runner::Runner for Subscriber {
+impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
     type Error = Error;
     async fn run(self) -> Result<(), Error> {
         let service = flowgen_core::connect::service::ServiceBuilder::new()
@@ -82,6 +87,7 @@ impl flowgen_core::task::runner::Runner for Subscriber {
             let topic = topic.clone();
             let tx = self.tx.clone();
             let config = Arc::clone(&self.config);
+            let cache = Arc::clone(&self.cache);
 
             let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
                 let config = Arc::clone(&config);
@@ -121,14 +127,16 @@ impl flowgen_core::task::runner::Runner for Subscriber {
                     match received {
                         Ok(fr) => {
                             for ce in fr.events {
-                                // Cache replay_id in durable consumer is set to be local.
-                                let should_cache_reply_id = config
+                                // Cache replay_id as durable consumer is set to be local.
+                                if let Some(durable_consumer_opts) = config
                                     .durable_consumer_options
                                     .as_ref()
-                                    .is_some_and(|opts| opts.enabled && !opts.managed_subscription);
-
-                                if should_cache_reply_id {
-                                    // cache the replay_id here
+                                    .filter(|opts| opts.enabled && !opts.managed_subscription)
+                                {
+                                    cache
+                                        .put(&durable_consumer_opts.name, ce.replay_id.into())
+                                        .await
+                                        .map_err(|_| Error::Cache())?;
                                 }
 
                                 if let Some(event) = ce.event {
@@ -186,14 +194,18 @@ impl flowgen_core::task::runner::Runner for Subscriber {
 }
 
 #[derive(Default)]
-pub struct SubscriberBuilder {
+pub struct SubscriberBuilder<T: Cache> {
     config: Option<Arc<super::config::Subscriber>>,
     tx: Option<Sender<Event>>,
     current_task_id: usize,
+    cache: Option<Arc<T>>,
 }
 
-impl SubscriberBuilder {
-    pub fn new() -> SubscriberBuilder {
+impl<T: Cache> SubscriberBuilder<T>
+where
+    T: Default,
+{
+    pub fn new() -> SubscriberBuilder<T> {
         SubscriberBuilder {
             ..Default::default()
         }
@@ -214,7 +226,12 @@ impl SubscriberBuilder {
         self
     }
 
-    pub async fn build(self) -> Result<Subscriber, Error> {
+    pub fn cache(mut self, cache: Arc<T>) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
+    pub async fn build(self) -> Result<Subscriber<T>, Error> {
         Ok(Subscriber {
             config: self
                 .config
@@ -222,6 +239,9 @@ impl SubscriberBuilder {
             tx: self
                 .tx
                 .ok_or_else(|| Error::MissingRequiredAttribute("sender".to_string()))?,
+            cache: self
+                .cache
+                .ok_or_else(|| Error::MissingRequiredAttribute("cache".to_string()))?,
             current_task_id: self.current_task_id,
         })
     }

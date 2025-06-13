@@ -254,11 +254,13 @@ impl Flow<'_> {
                 Task::salesforce_pubsub_subscriber(config) => {
                     let config = Arc::new(config.to_owned());
                     let tx = tx.clone();
+                    let cache = Arc::clone(&cache);
                     let task: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
                         flowgen_salesforce::pubsub::subscriber::SubscriberBuilder::new()
                             .config(config)
                             .sender(tx)
                             .current_task_id(i)
+                            .cache(cache)
                             .build()
                             .await
                             .map_err(Error::SalesforcePubSubSubscriber)?

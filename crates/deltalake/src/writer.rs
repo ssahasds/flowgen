@@ -234,6 +234,7 @@ pub struct Writer<T: Cache> {
     rx: Receiver<Event>,
     /// The ID assigned to this writer task, used for filtering events.
     current_task_id: usize,
+    /// The cache store used to put / retrieve schema etc.
     cache: Arc<T>,
 }
 
