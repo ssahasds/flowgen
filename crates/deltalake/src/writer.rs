@@ -57,6 +57,7 @@ const DEFAULT_SOURCE_ALIAS: &str = "source";
 
 /// Errors that can occur during the Delta Lake writing process.
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// Error originating from the schema extension crate.
     #[error(transparent)]

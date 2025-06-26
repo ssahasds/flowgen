@@ -4,14 +4,11 @@ use flowgen_core::{
     convert::recordbatch::RecordBatchExt,
     stream::event::{Event, EventBuilder},
 };
-use futures_util::future::try_join_all;
+
 use salesforce_pubsub::eventbus::v1::{FetchRequest, SchemaRequest, TopicRequest};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::{
-    sync::{broadcast::Sender, Mutex},
-    task::JoinHandle,
-};
+use tokio::sync::{broadcast::Sender, Mutex};
 use tokio_stream::StreamExt;
 use tracing::{event, Level};
 
@@ -21,31 +18,170 @@ const DEFAULT_PUBSUB_PORT: &str = "443";
 const DEFAULT_NUM_REQUESTED: i32 = 1000;
 
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
-    #[error("error with PubSub context")]
-    SalesforcePubSub(#[source] super::context::Error),
-    #[error("error with Salesforce authentication")]
-    SalesforceAuth(#[source] crate::client::Error),
-    #[error("error constructing event")]
-    Event(#[source] flowgen_core::stream::event::Error),
-    #[error("error executing async task")]
-    TaskJoin(#[source] tokio::task::JoinError),
-    #[error("error parsing value to avro schema")]
-    SerdeAvroSchema(#[source] serde_avro_fast::schema::SchemaError),
-    #[error("error parsing value to an data entity")]
-    SerdeAvroValue(#[source] serde_avro_fast::de::DeError),
-    #[error("error with sending message over channel")]
-    SendMessage(#[source] tokio::sync::broadcast::error::SendError<Event>),
-    #[error("error deserializing data into binary format")]
-    Bincode(#[source] bincode::Error),
-    #[error("error with processing record batch")]
-    RecordBatch(#[source] flowgen_core::convert::recordbatch::Error),
-    #[error("error setting up flowgen grpc service")]
-    Service(#[source] flowgen_core::connect::service::Error),
+    #[error(transparent)]
+    SalesforcePubSub(#[from] super::context::Error),
+    #[error(transparent)]
+    SalesforceAuth(#[from] crate::client::Error),
+    #[error(transparent)]
+    Event(#[from] flowgen_core::stream::event::Error),
+    #[error(transparent)]
+    TaskJoin(#[from] tokio::task::JoinError),
+    #[error(transparent)]
+    SerdeAvroSchema(#[from] serde_avro_fast::schema::SchemaError),
+    #[error(transparent)]
+    SerdeAvroValue(#[from] serde_avro_fast::de::DeError),
+    #[error(transparent)]
+    SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),
+    #[error(transparent)]
+    Bincode(#[from] bincode::Error),
+    #[error(transparent)]
+    RecordBatch(#[from] flowgen_core::convert::recordbatch::Error),
+    #[error(transparent)]
+    Service(#[from] flowgen_core::connect::service::Error),
     #[error("missing required attribute")]
     MissingRequiredAttribute(String),
     #[error("cache errors")]
     Cache(),
+}
+
+/// Handles the processing logic for a single incoming `Event`.
+///
+/// An `EventHandler` instance is created for each event that is received.
+struct TopicListener<T: Cache> {
+    /// The cache store used to put / retrieve schema etc.
+    cache: Arc<T>,
+    pubsub: Arc<Mutex<super::context::Context>>,
+    topic: String,
+    tx: Sender<Event>,
+    /// Thread-safe reference to the subscriber configuration.
+    config: Arc<super::config::Subscriber>,
+    current_task_id: usize,
+}
+
+impl<T: Cache> TopicListener<T> {
+    async fn run(self) -> Result<(), Error> {
+        let topic_info = self
+            .pubsub
+            .lock()
+            .await
+            .get_topic(TopicRequest {
+                topic_name: self.topic.clone(),
+            })
+            .await
+            .map_err(Error::SalesforcePubSub)?
+            .into_inner();
+
+        let schema_info = self
+            .pubsub
+            .lock()
+            .await
+            .get_schema(SchemaRequest {
+                schema_id: topic_info.schema_id,
+            })
+            .await
+            .map_err(Error::SalesforcePubSub)?
+            .into_inner();
+
+        let num_requested = match self.config.num_requested {
+            Some(num_requested) => num_requested,
+            None => DEFAULT_NUM_REQUESTED,
+        };
+
+        let topic_name = topic_info.topic_name.as_str();
+        let mut fetch_request = FetchRequest {
+            topic_name: topic_name.to_string(),
+            num_requested,
+            ..Default::default()
+        };
+
+        if let Some(durable_consumer_opts) = self
+            .config
+            .durable_consumer_options
+            .as_ref()
+            .filter(|opts| opts.enabled && !opts.managed_subscription)
+        {
+            match self.cache.get(&durable_consumer_opts.name).await {
+                Ok(reply_id) => {
+                    fetch_request.replay_id = reply_id.into();
+                    fetch_request.replay_preset = 2
+                }
+                Err(err) => {
+                    println!("{:?}", err);
+                }
+            }
+        }
+
+        let mut stream = self
+            .pubsub
+            .lock()
+            .await
+            .subscribe(fetch_request)
+            .await
+            .map_err(Error::SalesforcePubSub)?
+            .into_inner();
+
+        while let Some(event) = stream.next().await {
+            match event {
+                Ok(fr) => {
+                    for ce in fr.events {
+                        // Cache replay_id as durable consumer is set to be local.
+                        if let Some(durable_consumer_opts) = self
+                            .config
+                            .durable_consumer_options
+                            .as_ref()
+                            .filter(|opts| opts.enabled && !opts.managed_subscription)
+                        {
+                            self.cache
+                                .put(&durable_consumer_opts.name, ce.replay_id.into())
+                                .await
+                                .map_err(|_| Error::Cache())?;
+                        }
+
+                        if let Some(event) = ce.event {
+                            let schema: serde_avro_fast::Schema =
+                                schema_info
+                                    .schema_json
+                                    .parse()
+                                    .map_err(Error::SerdeAvroSchema)?;
+
+                            let value = serde_avro_fast::from_datum_slice::<Value>(
+                                &event.payload[..],
+                                &schema,
+                            )
+                            .map_err(Error::SerdeAvroValue)?;
+
+                            let recordbatch = value
+                                .to_string()
+                                .to_recordbatch()
+                                .map_err(Error::RecordBatch)?;
+
+                            let topic = topic_name.replace('/', ".").to_lowercase();
+
+                            let subject =
+                                format!("{}.{}.{}", DEFAULT_MESSAGE_SUBJECT, &topic[1..], event.id);
+
+                            let e = EventBuilder::new()
+                                .data(recordbatch)
+                                .subject(subject)
+                                .current_task_id(self.current_task_id)
+                                .build()
+                                .map_err(Error::Event)?;
+
+                            event!(Level::INFO, "event processed: {}", e.subject);
+                            self.tx.send(e).map_err(Error::SendMessage)?;
+                        }
+                    }
+                }
+                Err(e) => {
+                    return Err(Error::SalesforcePubSub(super::context::Error::Tonic(e)));
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub struct Subscriber<T: Cache> {
@@ -86,138 +222,29 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
             .map_err(Error::SalesforcePubSub)?;
         let pubsub = Arc::new(Mutex::new(pubsub));
 
-        let mut handle_list: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
-
         for topic in self.config.topic_list.clone().into_iter() {
             let pubsub: Arc<Mutex<super::context::Context>> = Arc::clone(&pubsub);
-            let topic_name = topic.clone();
             let tx = self.tx.clone();
             let config = Arc::clone(&self.config);
             let cache = Arc::clone(&self.cache);
+            let current_task_id = self.current_task_id;
+            let topic_listener = TopicListener {
+                cache,
+                config,
+                current_task_id,
+                tx,
+                topic,
+                pubsub,
+            };
 
-            let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-                let config = Arc::clone(&config);
-                let topic_info = pubsub
-                    .lock()
-                    .await
-                    .get_topic(TopicRequest {
-                        topic_name: topic.clone(),
-                    })
-                    .await
-                    .map_err(Error::SalesforcePubSub)?
-                    .into_inner();
-
-                let schema_info = pubsub
-                    .lock()
-                    .await
-                    .get_schema(SchemaRequest {
-                        schema_id: topic_info.schema_id,
-                    })
-                    .await
-                    .map_err(Error::SalesforcePubSub)?
-                    .into_inner();
-
-                let num_requested = match config.num_requested {
-                    Some(num_requested) => num_requested,
-                    None => DEFAULT_NUM_REQUESTED,
-                };
-
-                let mut fetch_request = FetchRequest {
-                    topic_name,
-                    num_requested,
-                    ..Default::default()
-                };
-
-                if let Some(durable_consumer_opts) = config
-                    .durable_consumer_options
-                    .as_ref()
-                    .filter(|opts| opts.enabled && !opts.managed_subscription)
-                {
-                    match cache.get(&durable_consumer_opts.name).await {
-                        Ok(reply_id) => {
-                            fetch_request.replay_id = reply_id.into();
-                            fetch_request.replay_preset = 2
-                        }
-                        Err(err) => {
-                            println!("error")
-                        }
-                    }
+            // Spawn a new asynchronous task to handle the topic listener for each topic.
+            tokio::spawn(async move {
+                if let Err(err) = topic_listener.run().await {
+                    event!(Level::ERROR, "{}", err);
                 }
-
-                let mut stream = pubsub
-                    .lock()
-                    .await
-                    .subscribe(fetch_request)
-                    .await
-                    .map_err(Error::SalesforcePubSub)?
-                    .into_inner();
-
-                while let Some(received) = stream.next().await {
-                    match received {
-                        Ok(fr) => {
-                            for ce in fr.events {
-                                // Cache replay_id as durable consumer is set to be local.
-                                if let Some(durable_consumer_opts) = config
-                                    .durable_consumer_options
-                                    .as_ref()
-                                    .filter(|opts| opts.enabled && !opts.managed_subscription)
-                                {
-                                    cache
-                                        .put(&durable_consumer_opts.name, ce.replay_id.into())
-                                        .await
-                                        .map_err(|_| Error::Cache())?;
-                                }
-
-                                if let Some(event) = ce.event {
-                                    let schema: serde_avro_fast::Schema = schema_info
-                                        .schema_json
-                                        .parse()
-                                        .map_err(Error::SerdeAvroSchema)?;
-
-                                    let value = serde_avro_fast::from_datum_slice::<Value>(
-                                        &event.payload[..],
-                                        &schema,
-                                    )
-                                    .map_err(Error::SerdeAvroValue)?;
-
-                                    let recordbatch = value
-                                        .to_string()
-                                        .to_recordbatch()
-                                        .map_err(Error::RecordBatch)?;
-
-                                    let topic =
-                                        topic_info.topic_name.replace('/', ".").to_lowercase();
-
-                                    let subject = format!(
-                                        "{}.{}.{}",
-                                        DEFAULT_MESSAGE_SUBJECT,
-                                        &topic[1..],
-                                        event.id
-                                    );
-
-                                    let e = EventBuilder::new()
-                                        .data(recordbatch)
-                                        .subject(subject)
-                                        .current_task_id(self.current_task_id)
-                                        .build()
-                                        .map_err(Error::Event)?;
-
-                                    event!(Level::INFO, "event processed: {}", e.subject);
-                                    tx.send(e).map_err(Error::SendMessage)?;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            return Err(Error::SalesforcePubSub(super::context::Error::Tonic(e)));
-                        }
-                    }
-                }
-                Ok(())
             });
-            handle_list.push(handle);
         }
 
-        let _ = try_join_all(handle_list.iter_mut()).await;
         Ok(())
     }
 }
