@@ -42,13 +42,15 @@ pub enum Error {
     Service(#[from] flowgen_core::connect::service::Error),
     #[error("missing required attribute")]
     MissingRequiredAttribute(String),
-    #[error("cache errors")]
-    Cache(),
+    #[error("cache error: {0}")]
+    Cache(String),
 }
 
-/// Handles the processing logic for a single incoming `Event`.
+/// Handles the processing logic for a specific Salesforce topic.
 ///
-/// An `EventHandler` instance is created for each event that is received.
+/// TopicListener subscribes to a single topic, processes incoming events,
+/// and forwards them to the event channel. It handles schema resolution,
+/// message deserialization, and durable consumer replay ID caching.
 struct TopicListener<T: Cache> {
     /// The cache store used to put / retrieve schema etc.
     cache: Arc<T>,
@@ -60,7 +62,8 @@ struct TopicListener<T: Cache> {
     current_task_id: usize,
 }
 
-impl<T: Cache> TopicListener<T> {
+impl<T: Cache> flowgen_core::task::runner::Runner for TopicListener<T> {
+    type Error = Error;
     async fn run(self) -> Result<(), Error> {
         let topic_info = self
             .pubsub
@@ -105,10 +108,13 @@ impl<T: Cache> TopicListener<T> {
             match self.cache.get(&durable_consumer_opts.name).await {
                 Ok(reply_id) => {
                     fetch_request.replay_id = reply_id.into();
-                    fetch_request.replay_preset = 2
+                    fetch_request.replay_preset = 2;
                 }
-                Err(err) => {
-                    println!("{:?}", err);
+                Err(_) => {
+                    event!(
+                        Level::WARN,
+                        "status: NoCacheKeyFound, message: 'The cache key was not found'"
+                    );
                 }
             }
         }
@@ -126,7 +132,7 @@ impl<T: Cache> TopicListener<T> {
             match event {
                 Ok(fr) => {
                     for ce in fr.events {
-                        // Cache replay_id as durable consumer is set to be local.
+                        // Cache replay_id for durable consumer recovery
                         if let Some(durable_consumer_opts) = self
                             .config
                             .durable_consumer_options
@@ -136,32 +142,43 @@ impl<T: Cache> TopicListener<T> {
                             self.cache
                                 .put(&durable_consumer_opts.name, ce.replay_id.into())
                                 .await
-                                .map_err(|_| Error::Cache())?;
+                                .map_err(|err| {
+                                    Error::Cache(format!("Failed to cache replay ID: {:?}", err))
+                                })?;
                         }
 
                         if let Some(event) = ce.event {
+                            // Parse Avro schema for event deserialization
                             let schema: serde_avro_fast::Schema =
                                 schema_info
                                     .schema_json
                                     .parse()
                                     .map_err(Error::SerdeAvroSchema)?;
 
+                            // Deserialize event payload using Avro schema
                             let value = serde_avro_fast::from_datum_slice::<Value>(
                                 &event.payload[..],
                                 &schema,
                             )
                             .map_err(Error::SerdeAvroValue)?;
 
+                            // Convert to RecordBatch for downstream processing
                             let recordbatch = value
                                 .to_string()
                                 .to_recordbatch()
                                 .map_err(Error::RecordBatch)?;
 
+                            // Normalize topic name for subject generation
                             let topic = topic_name.replace('/', ".").to_lowercase();
 
-                            let subject =
-                                format!("{}.{}.{}", DEFAULT_MESSAGE_SUBJECT, &topic[1..], event.id);
+                            // Generate unique subject for event routing
+                            let subject = if let Some(stripped) = topic.strip_prefix('.') {
+                                format!("{}.{}.{}", DEFAULT_MESSAGE_SUBJECT, stripped, event.id)
+                            } else {
+                                format!("{}.{}.{}", DEFAULT_MESSAGE_SUBJECT, topic, event.id)
+                            };
 
+                            // Build and send event to downstream processors
                             let e = EventBuilder::new()
                                 .data(recordbatch)
                                 .subject(subject)
@@ -184,11 +201,18 @@ impl<T: Cache> TopicListener<T> {
     }
 }
 
+/// Main subscriber that manages multiple Salesforce topic subscriptions.
+///
+/// The Subscriber creates and manages TopicListener instances for each configured topic,
+/// handling connection setup, authentication, and task orchestration.
 pub struct Subscriber<T: Cache> {
+    /// Subscriber configuration including topics, credentials, and consumer options
     config: Arc<super::config::Subscriber>,
+    /// Channel sender for forwarding processed events
     tx: Sender<Event>,
+    /// Current task identifier for event tracking
     current_task_id: usize,
-    /// The cache store used to put / retrieve schema etc.
+    /// Cache store for replay IDs and schema caching
     cache: Arc<T>,
 }
 
@@ -222,6 +246,7 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
             .map_err(Error::SalesforcePubSub)?;
         let pubsub = Arc::new(Mutex::new(pubsub));
 
+        // Create and spawn TopicListener for each configured topic
         for topic in self.config.topic_list.clone().into_iter() {
             let pubsub: Arc<Mutex<super::context::Context>> = Arc::clone(&pubsub);
             let tx = self.tx.clone();
@@ -237,7 +262,7 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
                 pubsub,
             };
 
-            // Spawn a new asynchronous task to handle the topic listener for each topic.
+            // Spawn TopicListener task with contextual error handling
             tokio::spawn(async move {
                 if let Err(err) = topic_listener.run().await {
                     event!(Level::ERROR, "{}", err);
@@ -249,6 +274,10 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
     }
 }
 
+/// Builder pattern for constructing Subscriber instances.
+///
+/// Provides a fluent interface for configuring the subscriber with required
+/// components like configuration, event sender, and cache.
 #[derive(Default)]
 pub struct SubscriberBuilder<T: Cache> {
     config: Option<Arc<super::config::Subscriber>>,
