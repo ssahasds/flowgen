@@ -4,7 +4,6 @@ use flowgen_core::{
     convert::recordbatch::RecordBatchExt,
     stream::event::{Event, EventBuilder},
 };
-use bytes::Bytes;
 
 use salesforce_pubsub::eventbus::v1::{FetchRequest, SchemaRequest, TopicRequest};
 use serde_json::Value;
@@ -45,9 +44,6 @@ pub enum Error {
     MissingRequiredAttribute(String),
     #[error("cache error: {0}")]
     Cache(String),
-    #[error(transparent)]
-    Serde(#[from] serde_json::Error),
-
 }
 
 /// Processes events from a single Salesforce Pub/Sub topic.
@@ -100,20 +96,6 @@ impl<T: Cache> flowgen_core::task::runner::Runner for TopicListener<T> {
             .await
             .map_err(Error::SalesforcePubSub)?
             .into_inner();
-
-            if let Some(cache_options) = &self.config.cache_options {
-                if let Some(insert_key) = &cache_options.insert_key {
-                    let schema_string =
-                        serde_json::to_string(&schema_info).map_err(Error::Serde)?;
-                    let schema_bytes = Bytes::from(schema_string);
-
-                    self.cache
-                        .put(insert_key.as_str(), schema_bytes)
-                        .await
-                        .map_err(|_| Error::Cache(format!("Failed to cache schema")))?;
-                }
-            };
-
 
         // Set batch size for event fetching
         let num_requested = match self.config.num_requested {

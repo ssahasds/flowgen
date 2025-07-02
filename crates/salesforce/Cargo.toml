@@ -27,4 +27,3 @@ arrow = { workspace = true }
 serde_avro_fast = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
-bytes = { workspace = true }
