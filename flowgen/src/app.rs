@@ -95,7 +95,7 @@ async fn run_flow(flow_builder: super::flow::FlowBuilder<'_>) {
     let flow = match flow.run().await {
         Ok(flow) => flow,
         Err(e) => {
-            event!(Level::ERROR, "flow run failed: {}", e);
+            event!(Level::ERROR, "{}", e);
             return;
         }
     };
@@ -126,10 +126,10 @@ fn log_task_error(result: Result<Result<(), super::flow::Error>, tokio::task::Jo
     match result {
         Ok(Ok(())) => {} // Task completed successfully
         Ok(Err(error)) => {
-            event!(Level::ERROR, "task failed to run: {}", error);
+            event!(Level::ERROR, "{}", error);
         }
         Err(error) => {
-            event!(Level::ERROR, "task failed to execute: {}", error);
+            event!(Level::ERROR, "{}", error);
         }
     }
 }
