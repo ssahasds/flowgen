@@ -1,6 +1,5 @@
-use std::{collections::HashMap, path::PathBuf};
-
 use object_store::{parse_url_opts, path::Path, ObjectStore};
+use std::{collections::HashMap, path::PathBuf};
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -39,7 +38,7 @@ impl flowgen_core::connect::client::Client for Client {
     type Error = Error;
 
     async fn connect(mut self) -> Result<Client, Error> {
-        // Parse URL and prepare connection options
+        // Parse URL and prepare connection options.
         let path = self.path.to_str().ok_or_else(Error::EmptyPath)?;
         let url = Url::parse(path).map_err(Error::ParseUrl)?;
         let mut parse_opts = match &self.options {
@@ -47,7 +46,7 @@ impl flowgen_core::connect::client::Client for Client {
             None => HashMap::new(),
         };
 
-        // Add Google Service Account credentials if provided
+        // Add Google Service Account credentials if provided.
         if let Some(credentials) = &self.credentials {
             parse_opts.insert(
                 "google_service_account".to_string(),
@@ -55,7 +54,7 @@ impl flowgen_core::connect::client::Client for Client {
             );
         }
 
-        // Initialize object store from URL and options
+        // Initialize object store from URL and options.
         let (object_store, path) = parse_url_opts(&url, parse_opts).map_err(Error::ObjectStore)?;
         let context = Context { object_store, path };
         self.context = Some(context);

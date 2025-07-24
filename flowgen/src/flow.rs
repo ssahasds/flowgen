@@ -93,13 +93,6 @@ pub enum Error {
         task_id: usize,
     },
     #[error("flow: {flow}, task_id: {task_id}, source: {source}")]
-    NatsJetStreamObjectStoreSubscriber {
-        #[source]
-        source: flowgen_nats::jetstream::object_store::reader::Error,
-        flow: String,
-        task_id: usize,
-    },
-    #[error("flow: {flow}, task_id: {task_id}, source: {source}")]
     RenderProcessor {
         #[source]
         source: flowgen_core::task::render::processor::Error,
@@ -350,33 +343,6 @@ impl Flow<'_> {
                             .run()
                             .await
                             .map_err(|e| Error::NatsJetStreamPublisher {
-                                source: e,
-                                flow: flow_config.flow.name.to_owned(),
-                                task_id: i,
-                            })?;
-                        Ok(())
-                    });
-                    task_list.push(task);
-                }
-                Task::nats_object_store_subscriber(config) => {
-                    let config = Arc::new(config.to_owned());
-                    let tx = tx.clone();
-                    let flow_config = Arc::clone(&self.config);
-                    let task: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-                        flowgen_nats::jetstream::object_store::reader::ReaderBuilder::new()
-                            .config(config)
-                            .sender(tx)
-                            .current_task_id(i)
-                            .build()
-                            .await
-                            .map_err(|e| Error::NatsJetStreamObjectStoreSubscriber {
-                                source: e,
-                                flow: flow_config.flow.name.to_owned(),
-                                task_id: i,
-                            })?
-                            .subscribe()
-                            .await
-                            .map_err(|e| Error::NatsJetStreamObjectStoreSubscriber {
                                 source: e,
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,

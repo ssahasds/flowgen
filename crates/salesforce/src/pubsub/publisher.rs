@@ -59,7 +59,7 @@ impl flowgen_core::task::runner::Runner for Publisher {
         let a = Path::new(&config.credentials);
 
         let service = flowgen_core::connect::service::ServiceBuilder::new()
-            .endpoint(format!("{0}:{1}", DEFAULT_PUBSUB_URI, DEFAULT_PUBSUB_PORT))
+            .endpoint(format!("{DEFAULT_PUBSUB_URI}:{DEFAULT_PUBSUB_PORT}"))
             .build()
             .map_err(Error::Service)?
             .connect()

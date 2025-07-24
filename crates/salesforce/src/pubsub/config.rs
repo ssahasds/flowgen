@@ -15,7 +15,6 @@
 //! All configurations require Salesforce credentials which should reference
 //! a credential store entry containing the necessary OAuth tokens and connection details.
 
-use flowgen_core::cache::CacheOptions;
 use flowgen_core::config::input::Input;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

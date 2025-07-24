@@ -73,11 +73,10 @@ impl EventHandler {
         };
         path.push(&filename);
 
-        // Process event data and write to buffer based on data type
         let mut buffer = Vec::new();
         let object_path = match &event.data {
             flowgen_core::stream::event::EventData::ArrowRecordBatch(data) => {
-                // Convert Arrow RecordBatch to CSV format
+                // Convert Arrow RecordBatch to CSV format.
                 arrow::csv::WriterBuilder::new()
                     .with_header(true)
                     .build(&mut buffer)
@@ -90,7 +89,7 @@ impl EventHandler {
                 ))
             }
             flowgen_core::stream::event::EventData::Avro(data) => {
-                // Parse Avro schema and deserialize raw bytes
+                // Parse Avro schema and deserialize raw bytes.
                 let schema = apache_avro::Schema::parse_str(&data.schema).map_err(Error::Avro)?;
                 let value = from_avro_datum(&schema, &mut &data.raw_bytes[..], None)
                     .map_err(Error::Avro)?;
@@ -163,7 +162,7 @@ impl flowgen_core::task::runner::Runner for Writer {
                 .map_err(Error::ObjectStoreClient)?,
         ));
 
-        // Process incoming events, filtering by task ID
+        // Process incoming events, filtering by task ID.
         while let Ok(event) = self.rx.recv().await {
             if event.current_task_id == Some(self.current_task_id - 1) {
                 let client = Arc::clone(&client);
