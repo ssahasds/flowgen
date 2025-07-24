@@ -69,7 +69,7 @@ impl EventHandler {
         let timestamp = cd.timestamp_micros();
         let filename = match event.id {
             Some(id) => id,
-            None => timestamp.to_string(),
+            _none => timestamp.to_string(),
         };
         path.push(&filename);
 

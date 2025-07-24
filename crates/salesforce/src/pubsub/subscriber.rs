@@ -54,10 +54,10 @@ struct EventHandler<T: Cache> {
     cache: Arc<T>,
     /// Salesforce Pub/Sub client context
     pubsub: Arc<Mutex<super::context::Context>>,
-    /// Channel sender for processed events
-    tx: Sender<Event>,
     /// Subscriber configuration
     config: Arc<super::config::Subscriber>,
+    /// Channel sender for processed events
+    tx: Sender<Event>,
     /// Task identifier for event tracking
     current_task_id: usize,
 }

@@ -3,7 +3,6 @@ use flowgen_core::{
     convert::{recordbatch::RecordBatchExt, render::Render},
     stream::event::{Event, EventBuilder, EventData},
 };
-use futures_util::future::try_join_all;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -11,7 +10,6 @@ use std::sync::Arc;
 use tokio::{
     fs,
     sync::broadcast::{Receiver, Sender},
-    task::JoinHandle,
 };
 use tracing::{event, Level};
 
@@ -31,28 +29,24 @@ struct BasicAuth {
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("error with reading file")]
-    IO(#[source] std::io::Error),
-    #[error("error with executing async task")]
-    TaskJoin(#[source] tokio::task::JoinError),
-    #[error("error with sending event over channel")]
-    SendMessage(#[source] tokio::sync::broadcast::error::SendError<Event>),
-    #[error("error with creating event")]
-    Event(#[source] flowgen_core::stream::event::Error),
-    #[error("error with parsing credentials file")]
-    ParseCredentials(#[source] serde_json::Error),
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+    #[error(transparent)]
+    SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),
+    #[error(transparent)]
+    Event(#[from] flowgen_core::stream::event::Error),
+    #[error(transparent)]
+    SerdeJson(#[from] serde_json::Error),
     #[error("error with processing recordbatch")]
     RecordBatch(#[source] flowgen_core::convert::recordbatch::Error),
     #[error("error with rendering content")]
     Render(#[source] flowgen_core::convert::render::Error),
-    #[error("error with processing http request")]
-    Reqwest(#[source] reqwest::Error),
-    #[error("error with converting a key to header name")]
-    ReqwestInvalidHeaderName(#[source] reqwest::header::InvalidHeaderName),
-    #[error("error with converting a value to a header value")]
-    ReqwestInvalidHeaderValue(#[source] reqwest::header::InvalidHeaderValue),
-    #[error("error with parsing a given value")]
-    SerdeJson(#[source] serde_json::Error),
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+    #[error(transparent)]
+    ReqwestInvalidHeaderName(#[from] reqwest::header::InvalidHeaderName),
+    #[error(transparent)]
+    ReqwestInvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
     #[error("missing required attrubute")]
     MissingRequiredAttribute(String),
     #[error("provided attribute not found")]
@@ -61,6 +55,138 @@ pub enum Error {
     ParseJson(),
     #[error("either payload json or payload input is required")]
     PayloadConfig(),
+}
+
+/// Handles processing of https call outs..
+struct EventHandler {
+    /// HTTP client.
+    client: Arc<reqwest::Client>,
+    /// Processor configuration settings.
+    config: Arc<super::config::Processor>,
+    /// Channel sender for processed events
+    tx: Sender<Event>,
+    /// Task identifier for event tracking
+    current_task_id: usize,
+}
+
+impl EventHandler {
+    /// Processes an event and writes it to the configured object store.
+    async fn handle(self, event: Event) -> Result<(), Error> {
+        let mut data = Map::new();
+
+        // if let Some(inputs) = &config.inputs {
+        //     for (key, input) in inputs {
+        //         // let value = input.extract(&event.data, &event.extensions);
+        //         // if let Ok(value) = value {
+        //         //     data.insert(key.to_owned(), value);
+        //         // }
+        //     }
+        // }
+
+        // Setup http client with endpoint according to chosen method.
+        let endpoint = self.config.endpoint.render(&data).map_err(Error::Render)?;
+        let mut client = match self.config.method {
+            crate::config::HttpMethod::GET => self.client.get(endpoint),
+            crate::config::HttpMethod::POST => self.client.post(endpoint),
+            crate::config::HttpMethod::PUT => self.client.put(endpoint),
+            crate::config::HttpMethod::DELETE => self.client.delete(endpoint),
+            crate::config::HttpMethod::PATCH => self.client.patch(endpoint),
+            crate::config::HttpMethod::HEAD => self.client.head(endpoint),
+        };
+
+        // Add headers if present in the config.
+        if let Some(headers) = self.config.headers.to_owned() {
+            let mut header_map = HeaderMap::new();
+            for (key, value) in headers {
+                let header_name =
+                    HeaderName::try_from(key).map_err(Error::ReqwestInvalidHeaderName)?;
+                let header_value =
+                    HeaderValue::try_from(value).map_err(Error::ReqwestInvalidHeaderValue)?;
+                header_map.insert(header_name, header_value);
+            }
+            client = client.headers(header_map);
+        }
+
+        // Set client body to json from the provided json string.
+        if let Some(payload) = &self.config.payload {
+            let json = match &payload.object {
+                Some(obj) => Value::Object(obj.to_owned()),
+                None => match &payload.input {
+                    Some(input) => {
+                        let key = input.replace("{{", "").replace("}}", "");
+
+                        let json_string = data.get(&key).ok_or_else(Error::NotFound)?;
+                        serde_json::from_str::<serde_json::Value>(
+                            json_string.as_str().ok_or_else(Error::ParseJson)?,
+                        )
+                        .map_err(Error::SerdeJson)?
+                    }
+                    None => return Err(Error::PayloadConfig()),
+                },
+            };
+
+            client = match payload.send_as {
+                crate::config::PayloadSendAs::Json => client.json(&json),
+                crate::config::PayloadSendAs::UrlEncoded => client.form(&json),
+                crate::config::PayloadSendAs::QueryParams => client.query(&json),
+            }
+        }
+
+        // Set client auth method & credentials.
+        if let Some(credentials) = &self.config.credentials {
+            let credentials_string = fs::read_to_string(credentials).await.map_err(Error::IO)?;
+            let credentials: Credentials =
+                serde_json::from_str(&credentials_string).map_err(Error::SerdeJson)?;
+
+            if let Some(bearer_token) = credentials.bearer_auth {
+                client = client.bearer_auth(bearer_token);
+            }
+
+            if let Some(basic_auth) = credentials.basic_auth {
+                client = client.basic_auth(basic_auth.username, Some(basic_auth.password));
+            }
+        };
+
+        // Do API Call.
+        let resp = client
+            .send()
+            .await
+            .map_err(Error::Reqwest)?
+            .text()
+            .await
+            .map_err(Error::Reqwest)?;
+
+        // Prepare processor output.
+        let recordbatch = resp.to_recordbatch().map_err(Error::RecordBatch)?;
+        let extensions = Value::Object(data)
+            .to_string()
+            .to_recordbatch()
+            .map_err(Error::RecordBatch)?;
+
+        let timestamp = Utc::now().timestamp_micros();
+        let subject = match &self.config.label {
+            Some(label) => format!(
+                "{}.{}.{}",
+                DEFAULT_MESSAGE_SUBJECT,
+                label.to_lowercase(),
+                timestamp
+            ),
+            None => format!("{DEFAULT_MESSAGE_SUBJECT}.{timestamp}"),
+        };
+
+        // Send processor output as event.
+        let e = EventBuilder::new()
+            .data(EventData::ArrowRecordBatch(recordbatch))
+            .extensions(extensions)
+            .subject(subject.clone())
+            .current_task_id(self.current_task_id)
+            .build()
+            .map_err(Error::Event)?;
+
+        self.tx.send(e).map_err(Error::SendMessage)?;
+        event!(Level::INFO, "event processes: {}", subject);
+        Ok(())
+    }
 }
 
 pub struct Processor {
@@ -73,8 +199,6 @@ pub struct Processor {
 impl flowgen_core::task::runner::Runner for Processor {
     type Error = Error;
     async fn run(mut self) -> Result<(), Error> {
-        let mut handle_list = Vec::new();
-
         let client = reqwest::ClientBuilder::new()
             .https_only(true)
             .build()
@@ -87,131 +211,21 @@ impl flowgen_core::task::runner::Runner for Processor {
                 let config = Arc::clone(&self.config);
                 let client = Arc::clone(&client);
                 let tx = self.tx.clone();
+                let current_task_id = self.current_task_id;
 
-                let handle: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-                    // Get input dynamic values.
-                    let mut data = Map::new();
-                    if let Some(inputs) = &config.inputs {
-                        for (key, input) in inputs {
-                            // let value = input.extract(&event.data, &event.extensions);
-                            // if let Ok(value) = value {
-                            //     data.insert(key.to_owned(), value);
-                            // }
-                        }
+                let event_handler = EventHandler {
+                    config,
+                    current_task_id,
+                    tx,
+                    client,
+                };
+                tokio::spawn(async move {
+                    if let Err(err) = event_handler.handle(event).await {
+                        event!(Level::ERROR, "{}", err);
                     }
-
-                    // Setup http client with endpoint according to chosen method.
-                    let endpoint = config.endpoint.render(&data).map_err(Error::Render)?;
-                    let mut client = match config.method {
-                        crate::config::HttpMethod::GET => client.get(endpoint),
-                        crate::config::HttpMethod::POST => client.post(endpoint),
-                        crate::config::HttpMethod::PUT => client.put(endpoint),
-                        crate::config::HttpMethod::DELETE => client.delete(endpoint),
-                        crate::config::HttpMethod::PATCH => client.patch(endpoint),
-                        crate::config::HttpMethod::HEAD => client.head(endpoint),
-                    };
-
-                    // Add headers if present in the config.
-                    if let Some(headers) = config.headers.to_owned() {
-                        let mut header_map = HeaderMap::new();
-                        for (key, value) in headers {
-                            let header_name = HeaderName::try_from(key)
-                                .map_err(Error::ReqwestInvalidHeaderName)?;
-                            let header_value = HeaderValue::try_from(value)
-                                .map_err(Error::ReqwestInvalidHeaderValue)?;
-                            header_map.insert(header_name, header_value);
-                        }
-                        client = client.headers(header_map);
-                    }
-
-                    // Set client body to json from the provided json string.
-                    if let Some(payload) = &config.payload {
-                        let json = match &payload.object {
-                            Some(obj) => Value::Object(obj.to_owned()),
-                            None => match &payload.input {
-                                Some(input) => {
-                                    let key = input.replace("{{", "").replace("}}", "");
-
-                                    let json_string = data.get(&key).ok_or_else(Error::NotFound)?;
-                                    serde_json::from_str::<serde_json::Value>(
-                                        json_string.as_str().ok_or_else(Error::ParseJson)?,
-                                    )
-                                    .map_err(Error::SerdeJson)?
-                                }
-                                None => return Err(Error::PayloadConfig()),
-                            },
-                        };
-
-                        client = match payload.send_as {
-                            crate::config::PayloadSendAs::Json => client.json(&json),
-                            crate::config::PayloadSendAs::UrlEncoded => client.form(&json),
-                            crate::config::PayloadSendAs::QueryParams => client.query(&json),
-                        }
-                    }
-
-                    // Set client auth method & credentials.
-                    if let Some(credentials) = &config.credentials {
-                        let credentials_string =
-                            fs::read_to_string(credentials).await.map_err(Error::IO)?;
-
-                        let credentials: Credentials = serde_json::from_str(&credentials_string)
-                            .map_err(Error::ParseCredentials)?;
-
-                        if let Some(bearer_token) = credentials.bearer_auth {
-                            client = client.bearer_auth(bearer_token);
-                        }
-
-                        if let Some(basic_auth) = credentials.basic_auth {
-                            client =
-                                client.basic_auth(basic_auth.username, Some(basic_auth.password));
-                        }
-                    };
-
-                    // Do API Call.
-                    let resp = client
-                        .send()
-                        .await
-                        .map_err(Error::Reqwest)?
-                        .text()
-                        .await
-                        .map_err(Error::Reqwest)?;
-
-                    // Prepare processor output.
-                    let recordbatch = resp.to_recordbatch().map_err(Error::RecordBatch)?;
-                    let extensions = Value::Object(data)
-                        .to_string()
-                        .to_recordbatch()
-                        .map_err(Error::RecordBatch)?;
-
-                    let timestamp = Utc::now().timestamp_micros();
-                    let subject = match &config.label {
-                        Some(label) => format!(
-                            "{}.{}.{}",
-                            DEFAULT_MESSAGE_SUBJECT,
-                            label.to_lowercase(),
-                            timestamp
-                        ),
-                        None => format!("{}.{}", DEFAULT_MESSAGE_SUBJECT, timestamp),
-                    };
-                    let event_message = format!("event processed: {}", subject);
-
-                    // Send processor output as event.
-                    let e = EventBuilder::new()
-                        .data(EventData::ArrowRecordBatch(recordbatch))
-                        .extensions(extensions)
-                        .subject(subject)
-                        .current_task_id(self.current_task_id)
-                        .build()
-                        .map_err(Error::Event)?;
-
-                    tx.send(e).map_err(Error::SendMessage)?;
-                    event!(Level::INFO, "{}", event_message);
-                    Ok(())
                 });
-                handle_list.push(handle);
             }
         }
-        let _ = try_join_all(handle_list.iter_mut()).await;
         Ok(())
     }
 }
