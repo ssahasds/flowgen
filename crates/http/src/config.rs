@@ -1,4 +1,4 @@
-use flowgen_core::render::config::ConfigExt;
+use flowgen_core::config::ConfigExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;

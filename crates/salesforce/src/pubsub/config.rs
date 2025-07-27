@@ -15,7 +15,7 @@
 //! All configurations require Salesforce credentials which should reference
 //! a credential store entry containing the necessary OAuth tokens and connection details.
 
-use flowgen_core::render::config::ConfigExt;
+use flowgen_core::config::ConfigExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 /// Configuration structure for Salesforce Pub/Sub subscriber operations.

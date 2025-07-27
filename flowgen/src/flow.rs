@@ -1,5 +1,5 @@
 use crate::config::{FlowConfig, Task};
-use flowgen_core::{cache::Cache, stream::event::Event, task::runner::Runner};
+use flowgen_core::{cache::Cache, event::Event, task::runner::Runner};
 use std::{path::Path, sync::Arc};
 use tokio::{
     sync::broadcast::{Receiver, Sender},

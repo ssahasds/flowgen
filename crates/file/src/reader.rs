@@ -8,7 +8,7 @@ use bytes::Bytes;
 use chrono::Utc;
 use flowgen_core::{
     cache::Cache,
-    stream::event::{Event, EventBuilder, EventData},
+    event::{Event, EventBuilder, EventData},
 };
 use std::{fs::File, io::Seek, sync::Arc};
 use tokio::sync::broadcast::{Receiver, Sender};
@@ -31,7 +31,7 @@ pub enum Error {
     #[error(transparent)]
     SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),
     #[error(transparent)]
-    Event(#[from] flowgen_core::stream::event::Error),
+    Event(#[from] flowgen_core::event::Error),
     #[error("missing required event attribute")]
     MissingRequiredAttribute(String),
     #[error("cache errors")]

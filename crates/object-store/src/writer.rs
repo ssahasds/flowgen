@@ -2,7 +2,7 @@ use apache_avro::from_avro_datum;
 use bytes::Bytes;
 use chrono::{DateTime, Datelike, Utc};
 use flowgen_core::connect::client::Client;
-use flowgen_core::stream::event::Event;
+use flowgen_core::event::Event;
 use object_store::PutPayload;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::{broadcast::Receiver, Mutex};
@@ -75,7 +75,7 @@ impl EventHandler {
 
         let mut buffer = Vec::new();
         let object_path = match &event.data {
-            flowgen_core::stream::event::EventData::ArrowRecordBatch(data) => {
+            flowgen_core::event::EventData::ArrowRecordBatch(data) => {
                 // Convert Arrow RecordBatch to CSV format.
                 arrow::csv::WriterBuilder::new()
                     .with_header(true)
@@ -88,7 +88,7 @@ impl EventHandler {
                     DEFAULT_CSV_EXTENSION
                 ))
             }
-            flowgen_core::stream::event::EventData::Avro(data) => {
+            flowgen_core::event::EventData::Avro(data) => {
                 // Parse Avro schema and deserialize raw bytes.
                 let schema = apache_avro::Schema::parse_str(&data.schema).map_err(Error::Avro)?;
                 let value = from_avro_datum(&schema, &mut &data.raw_bytes[..], None)

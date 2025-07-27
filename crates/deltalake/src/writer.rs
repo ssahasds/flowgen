@@ -41,9 +41,7 @@ use deltalake::{
     writer::{DeltaWriter, RecordBatchWriter},
     DeltaOps,
 };
-use flowgen_core::{
-    cache::Cache, connect::client::Client as FlowgenClientTrait, stream::event::Event,
-};
+use flowgen_core::{cache::Cache, connect::client::Client as FlowgenClientTrait, event::Event};
 use std::sync::Arc;
 use tokio::sync::{broadcast::Receiver, Mutex};
 use tracing::{error, event, Level};

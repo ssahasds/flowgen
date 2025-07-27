@@ -1,7 +1,7 @@
 use arrow::ipc::{reader::StreamDecoder, writer::StreamWriter};
 use async_nats::jetstream::context::Publish;
 use bincode::{deserialize, serialize};
-use flowgen_core::stream::event::{AvroData, EventBuilder, EventData};
+use flowgen_core::event::{AvroData, EventBuilder, EventData};
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
@@ -9,7 +9,7 @@ pub enum Error {
     #[error(transparent)]
     Arrow(#[from] arrow::error::ArrowError),
     #[error(transparent)]
-    Event(#[from] flowgen_core::stream::event::Error),
+    Event(#[from] flowgen_core::event::Error),
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
     #[error("error getting recordbatch")]
@@ -23,10 +23,10 @@ pub trait FlowgenMessageExt {
 
 pub trait NatsMessageExt {
     type Error;
-    fn to_event(&self) -> Result<flowgen_core::stream::event::Event, Self::Error>;
+    fn to_event(&self) -> Result<flowgen_core::event::Event, Self::Error>;
 }
 
-impl FlowgenMessageExt for flowgen_core::stream::event::Event {
+impl FlowgenMessageExt for flowgen_core::event::Event {
     type Error = Error;
     fn to_publish(&self) -> Result<Publish, Self::Error> {
         let mut event = Publish::build();
@@ -35,7 +35,7 @@ impl FlowgenMessageExt for flowgen_core::stream::event::Event {
         }
 
         match &self.data {
-            flowgen_core::stream::event::EventData::ArrowRecordBatch(data) => {
+            flowgen_core::event::EventData::ArrowRecordBatch(data) => {
                 let buffer: Vec<u8> = Vec::new();
                 let mut stream_writer =
                     StreamWriter::try_new(buffer, &data.schema()).map_err(Error::Arrow)?;
@@ -44,7 +44,7 @@ impl FlowgenMessageExt for flowgen_core::stream::event::Event {
                 let serialized = serialize(stream_writer.get_mut())?;
                 event = event.payload(serialized.into());
             }
-            flowgen_core::stream::event::EventData::Avro(data) => {
+            flowgen_core::event::EventData::Avro(data) => {
                 let serialized = serialize(&data)?;
                 event = event.payload(serialized.into());
             }
@@ -55,7 +55,7 @@ impl FlowgenMessageExt for flowgen_core::stream::event::Event {
 
 impl NatsMessageExt for async_nats::Message {
     type Error = Error;
-    fn to_event(&self) -> Result<flowgen_core::stream::event::Event, Self::Error> {
+    fn to_event(&self) -> Result<flowgen_core::event::Event, Self::Error> {
         let mut event = EventBuilder::new().subject(self.subject.to_string());
         if let Some(headers) = &self.headers {
             if let Some(id) = headers.get(async_nats::header::NATS_MESSAGE_ID) {

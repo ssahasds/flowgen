@@ -1,9 +1,9 @@
 use chrono::Utc;
 use flowgen_core::{
+    config::ConfigExt,
     connect::client::Client,
     convert::serde::{MapExt, StringExt},
-    render::config::ConfigExt,
-    stream::event::Event,
+    event::Event,
 };
 use salesforce_pubsub::eventbus::v1::{ProducerEvent, PublishRequest, SchemaRequest, TopicRequest};
 use serde_avro_fast::{ser, Schema};
@@ -27,13 +27,13 @@ pub enum Error {
     #[error(transparent)]
     SerdeAvro(#[from] serde_avro_fast::ser::SerError),
     #[error(transparent)]
-    Render(#[from] flowgen_core::render::config::Error),
+    Render(#[from] flowgen_core::config::Error),
     #[error(transparent)]
     RecordBatch(#[from] flowgen_core::convert::recordbatch::Error),
     #[error(transparent)]
     SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),
     #[error(transparent)]
-    Event(#[from] flowgen_core::stream::event::Error),
+    Event(#[from] flowgen_core::event::Error),
     #[error(transparent)]
     Service(#[from] flowgen_core::connect::service::Error),
     #[error("missing required event attribute")]

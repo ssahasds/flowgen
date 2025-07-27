@@ -1,4 +1,7 @@
+use crate::convert::serde::SerdeValueExt;
+use apache_avro::from_avro_datum;
 use chrono::Utc;
+use serde::{Serialize, Serializer};
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
@@ -28,7 +31,31 @@ pub struct AvroData {
     pub raw_bytes: Vec<u8>,
 }
 
-#[derive(Default, Debug, Clone)]
+impl Serialize for EventData {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            EventData::ArrowRecordBatch(data) => {
+                let json_value: serde_json::Value =
+                    data.try_from().map_err(serde::ser::Error::custom)?;
+                json_value.serialize(serializer)
+            }
+            EventData::Avro(data) => {
+                let schema = apache_avro::Schema::parse_str(&data.schema)
+                    .map_err(serde::ser::Error::custom)?;
+                let avro_value = from_avro_datum(&schema, &mut &data.raw_bytes[..], None)
+                    .map_err(serde::ser::Error::custom)?;
+                let json_value =
+                    serde_json::Value::try_from(avro_value).map_err(serde::ser::Error::custom)?;
+                json_value.serialize(serializer)
+            }
+        }
+    }
+}
+
+#[derive(Default)]
 pub struct EventBuilder {
     pub data: Option<EventData>,
     pub extensions: Option<arrow::array::RecordBatch>,

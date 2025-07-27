@@ -1,6 +1,6 @@
 use crate::{
     convert::recordbatch::RecordBatchExt,
-    stream::event::{Event, EventBuilder, EventData},
+    event::{Event, EventBuilder, EventData},
 };
 use chrono::Utc;
 use std::{sync::Arc, time::Duration};
@@ -14,7 +14,7 @@ pub enum Error {
     #[error(transparent)]
     SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),
     #[error(transparent)]
-    Event(#[from] crate::stream::event::Error),
+    Event(#[from] crate::event::Error),
     #[error(transparent)]
     RecordBatch(#[from] crate::convert::recordbatch::Error),
     #[error("missing required attrubute")]
@@ -42,7 +42,7 @@ impl crate::task::runner::Runner for Subscriber {
                     label.to_lowercase(),
                     timestamp
                 ),
-                None => format!("{}.{}", DEFAULT_MESSAGE_SUBJECT, timestamp),
+                None => format!("{DEFAULT_MESSAGE_SUBJECT}.{timestamp}"),
             };
 
             let recordbatch = self

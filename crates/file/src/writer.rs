@@ -4,7 +4,7 @@
 //! to CSV files with automatically generated timestamps.
 use apache_avro::from_avro_datum;
 use chrono::Utc;
-use flowgen_core::stream::event::Event;
+use flowgen_core::event::Event;
 use std::{fs::File, sync::Arc};
 use tokio::sync::broadcast::Receiver;
 use tracing::{event, Level};
@@ -65,14 +65,14 @@ impl EventHandler {
         let file = File::create(filename).map_err(Error::IO)?;
 
         match &event.data {
-            flowgen_core::stream::event::EventData::ArrowRecordBatch(data) => {
+            flowgen_core::event::EventData::ArrowRecordBatch(data) => {
                 arrow::csv::WriterBuilder::new()
                     .with_header(true)
                     .build(file)
                     .write(data)
                     .map_err(Error::Arrow)?;
             }
-            flowgen_core::stream::event::EventData::Avro(data) => {
+            flowgen_core::event::EventData::Avro(data) => {
                 let schema = apache_avro::Schema::parse_str(&data.schema).map_err(Error::Avro)?;
                 let value = from_avro_datum(&schema, &mut &data.raw_bytes[..], None)
                     .map_err(Error::Avro)?;

@@ -1,7 +1,7 @@
 use flowgen_core::{
     cache::Cache,
     connect::client::Client,
-    stream::event::{AvroData, Event, EventBuilder, EventData},
+    event::{AvroData, Event, EventBuilder, EventData},
 };
 use salesforce_pubsub::eventbus::v1::{FetchRequest, SchemaRequest, TopicRequest};
 use std::sync::Arc;
@@ -22,7 +22,7 @@ pub enum Error {
     #[error(transparent)]
     SalesforceAuth(#[from] crate::client::Error),
     #[error(transparent)]
-    Event(#[from] flowgen_core::stream::event::Error),
+    Event(#[from] flowgen_core::event::Error),
     #[error(transparent)]
     TaskJoin(#[from] tokio::task::JoinError),
     #[error(transparent)]

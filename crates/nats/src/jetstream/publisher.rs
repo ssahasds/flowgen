@@ -1,7 +1,7 @@
 use super::message::FlowgenMessageExt;
 use async_nats::jetstream::stream::{Config, DiscardPolicy, RetentionPolicy};
 use flowgen_core::connect::client::Client;
-use flowgen_core::stream::event::Event;
+use flowgen_core::event::Event;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast::Receiver, Mutex};
 use tracing::{event, Level};

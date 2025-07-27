@@ -1,11 +1,10 @@
 pub mod cache;
 pub mod render {
-    pub mod config;
     pub mod input;
 }
-pub mod stream {
-    pub mod event;
-}
+
+pub mod config;
+pub mod event;
 pub mod convert {
     pub mod recordbatch;
     pub mod serde;

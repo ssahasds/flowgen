@@ -1,8 +1,8 @@
 use chrono::Utc;
 use flowgen_core::{
+    config::ConfigExt,
     convert::recordbatch::RecordBatchExt,
-    render::config::ConfigExt,
-    stream::event::{Event, EventBuilder, EventData},
+    event::{Event, EventBuilder, EventData},
 };
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
@@ -35,13 +35,13 @@ pub enum Error {
     #[error(transparent)]
     SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),
     #[error(transparent)]
-    Event(#[from] flowgen_core::stream::event::Error),
+    Event(#[from] flowgen_core::event::Error),
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
     #[error("error with processing recordbatch")]
     RecordBatch(#[source] flowgen_core::convert::recordbatch::Error),
     #[error(transparent)]
-    Render(#[from] flowgen_core::render::config::Error),
+    Render(#[from] flowgen_core::config::Error),
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
     #[error(transparent)]

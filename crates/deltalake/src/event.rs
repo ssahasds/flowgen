@@ -34,7 +34,7 @@ pub trait EventExt {
 }
 
 /// Implements `EventExt` for `flowgen_core::stream::event::Event`.
-impl EventExt for flowgen_core::stream::event::Event {
+impl EventExt for flowgen_core::event::Event {
     type Error = Error;
 
     /// Modifies the event's internal `RecordBatch` to normalize data.
