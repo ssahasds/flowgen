@@ -1,4 +1,4 @@
-use crate::config::input::Input;
+use crate::render::input::Input;
 use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]

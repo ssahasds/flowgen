@@ -61,7 +61,7 @@ impl EventBuilder {
         self.id = Some(id);
         self
     }
-    pub fn timestamp(mut self, timestamp: i64) -> Self {
+    pub fn time(mut self, timestamp: i64) -> Self {
         self.timestamp = timestamp;
         self
     }

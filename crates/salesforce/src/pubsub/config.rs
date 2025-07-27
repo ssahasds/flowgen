@@ -15,10 +15,9 @@
 //! All configurations require Salesforce credentials which should reference
 //! a credential store entry containing the necessary OAuth tokens and connection details.
 
-use flowgen_core::config::input::Input;
+use flowgen_core::render::config::ConfigExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::HashMap;
 /// Configuration structure for Salesforce Pub/Sub subscriber operations.
 ///
 /// This structure defines all parameters needed to subscribe to Salesforce Pub/Sub topics,
@@ -241,8 +240,6 @@ pub struct Publisher {
     pub topic: String,
     /// Event payload template with static values and dynamic placeholders.
     pub payload: Map<String, Value>,
-    /// Optional input mappings for dynamic payload population at runtime.
-    pub inputs: Option<HashMap<String, Input>>,
     /// Optional Salesforce Pub/Sub endpoint (e.g., "api.pubsub.salesforce.com:7443" or "api.deu.pubsub.salesforce.com:7443").
     pub endpoint: Option<String>,
 }
@@ -302,3 +299,5 @@ pub struct DurableConsumerOptions {
     /// Unique name for this durable consumer subscription (must be unique within the org).
     pub name: String,
 }
+
+impl ConfigExt for Publisher {}

@@ -1,11 +1,12 @@
 use chrono::Utc;
 use flowgen_core::{
-    convert::{recordbatch::RecordBatchExt, render::Render},
+    convert::recordbatch::RecordBatchExt,
+    render::config::ConfigExt,
     stream::event::{Event, EventBuilder, EventData},
 };
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::sync::Arc;
 use tokio::{
     fs,
@@ -39,8 +40,8 @@ pub enum Error {
     SerdeJson(#[from] serde_json::Error),
     #[error("error with processing recordbatch")]
     RecordBatch(#[source] flowgen_core::convert::recordbatch::Error),
-    #[error("error with rendering content")]
-    Render(#[source] flowgen_core::convert::render::Error),
+    #[error(transparent)]
+    Render(#[from] flowgen_core::render::config::Error),
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
     #[error(transparent)]
@@ -72,26 +73,16 @@ struct EventHandler {
 impl EventHandler {
     /// Processes an event and writes it to the configured object store.
     async fn handle(self, event: Event) -> Result<(), Error> {
-        let mut data = Map::new();
-
-        // if let Some(inputs) = &config.inputs {
-        //     for (key, input) in inputs {
-        //         // let value = input.extract(&event.data, &event.extensions);
-        //         // if let Ok(value) = value {
-        //         //     data.insert(key.to_owned(), value);
-        //         // }
-        //     }
-        // }
+        let config = self.config.render(&event.data).unwrap();
 
         // Setup http client with endpoint according to chosen method.
-        let endpoint = self.config.endpoint.render(&data).map_err(Error::Render)?;
-        let mut client = match self.config.method {
-            crate::config::HttpMethod::GET => self.client.get(endpoint),
-            crate::config::HttpMethod::POST => self.client.post(endpoint),
-            crate::config::HttpMethod::PUT => self.client.put(endpoint),
-            crate::config::HttpMethod::DELETE => self.client.delete(endpoint),
-            crate::config::HttpMethod::PATCH => self.client.patch(endpoint),
-            crate::config::HttpMethod::HEAD => self.client.head(endpoint),
+        let mut client = match config.method {
+            crate::config::HttpMethod::GET => self.client.get(config.endpoint),
+            crate::config::HttpMethod::POST => self.client.post(config.endpoint),
+            crate::config::HttpMethod::PUT => self.client.put(config.endpoint),
+            crate::config::HttpMethod::DELETE => self.client.delete(config.endpoint),
+            crate::config::HttpMethod::PATCH => self.client.patch(config.endpoint),
+            crate::config::HttpMethod::HEAD => self.client.head(config.endpoint),
         };
 
         // Add headers if present in the config.
@@ -112,15 +103,7 @@ impl EventHandler {
             let json = match &payload.object {
                 Some(obj) => Value::Object(obj.to_owned()),
                 None => match &payload.input {
-                    Some(input) => {
-                        let key = input.replace("{{", "").replace("}}", "");
-
-                        let json_string = data.get(&key).ok_or_else(Error::NotFound)?;
-                        serde_json::from_str::<serde_json::Value>(
-                            json_string.as_str().ok_or_else(Error::ParseJson)?,
-                        )
-                        .map_err(Error::SerdeJson)?
-                    }
+                    Some(input) => serde_json::from_str::<serde_json::Value>(input.as_str())?,
                     None => return Err(Error::PayloadConfig()),
                 },
             };
@@ -158,10 +141,6 @@ impl EventHandler {
 
         // Prepare processor output.
         let recordbatch = resp.to_recordbatch().map_err(Error::RecordBatch)?;
-        let extensions = Value::Object(data)
-            .to_string()
-            .to_recordbatch()
-            .map_err(Error::RecordBatch)?;
 
         let timestamp = Utc::now().timestamp_micros();
         let subject = match &self.config.label {
@@ -177,7 +156,6 @@ impl EventHandler {
         // Send processor output as event.
         let e = EventBuilder::new()
             .data(EventData::ArrowRecordBatch(recordbatch))
-            .extensions(extensions)
             .subject(subject.clone())
             .current_task_id(self.current_task_id)
             .build()

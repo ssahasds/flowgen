@@ -12,6 +12,7 @@ path = "src/lib.rs"
 
 [dependencies]
 arrow = { workspace = true }
+apache-avro = { workspace = true }
 tonic = { workspace = true }
 async-nats = { workspace = true }
 bincode = { workspace = true }
@@ -26,4 +27,4 @@ tokio = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
 futures-util = { workspace = true }
-apache-avro = "0.19.0"
+regex = { workspace = true }

@@ -1,5 +1,6 @@
 pub mod cache;
-pub mod config {
+pub mod render {
+    pub mod config;
     pub mod input;
 }
 pub mod stream {
@@ -7,7 +8,6 @@ pub mod stream {
 }
 pub mod convert {
     pub mod recordbatch;
-    pub mod render;
     pub mod serde;
 }
 pub mod connect {

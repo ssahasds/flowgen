@@ -1,10 +1,8 @@
 use chrono::Utc;
 use flowgen_core::{
     connect::client::Client,
-    convert::{
-        render::Render,
-        serde::{MapExt, StringExt},
-    },
+    convert::serde::{MapExt, StringExt},
+    render::config::ConfigExt,
     stream::event::Event,
 };
 use salesforce_pubsub::eventbus::v1::{ProducerEvent, PublishRequest, SchemaRequest, TopicRequest};
@@ -29,7 +27,7 @@ pub enum Error {
     #[error(transparent)]
     SerdeAvro(#[from] serde_avro_fast::ser::SerError),
     #[error(transparent)]
-    Render(#[from] flowgen_core::convert::render::Error),
+    Render(#[from] flowgen_core::render::config::Error),
     #[error(transparent)]
     RecordBatch(#[from] flowgen_core::convert::recordbatch::Error),
     #[error(transparent)]
@@ -115,25 +113,8 @@ impl flowgen_core::task::runner::Runner for Publisher {
 
         while let Ok(event) = self.rx.recv().await {
             if event.current_task_id == Some(self.current_task_id - 1) {
-                let mut data = Map::new();
-                if let Some(inputs) = &self.config.inputs {
-                    // for (key, input) in inputs {
-                    //     let value = input.extract(&event.data, &event.extensions);
-                    //     if let Ok(value) = value {
-                    //         data.insert(key.to_owned(), value);
-                    //     }
-                    // }
-                }
-
-                let payload = self
-                    .config
-                    .payload
-                    .to_string()
-                    .map_err(Error::SerdeExt)?
-                    .render(&data)
-                    .map_err(Error::Render)?
-                    .to_value()
-                    .map_err(Error::SerdeExt)?;
+                let config = config.render(&event.data)?;
+                let payload = config.payload.to_string()?.to_value()?;
 
                 let mut publish_payload: Map<String, Value> = Map::new();
                 for (k, v) in payload.as_object().ok_or_else(Error::EmptyObject)? {

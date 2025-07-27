@@ -1,33 +1,7 @@
-use flowgen_core::config::input::Input;
+use flowgen_core::render::config::ConfigExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-
-/// A configuration option for the HTTP processor.
-///
-/// Example:
-/// ```json
-/// {
-///     "http": {
-///         "label": "example",
-///         "method": "POST",
-///         "endpoint": "https://example.com",
-///         "payload": {
-///             "input": "{{payload}}",
-///             "send_as": "UrlEncoded"
-///         },
-///         "credentials": "/etc/example/credentials.json",
-///         "inputs": {
-///             "payload": {
-///                 "column": "payload",
-///                 "is_static": false,
-///                 "is_extension": false,
-///                 "index": 0
-///             }
-///         }
-///     }
-/// }
-/// ```
 
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Processor {
@@ -37,8 +11,9 @@ pub struct Processor {
     pub payload: Option<Payload>,
     pub headers: Option<HashMap<String, String>>,
     pub credentials: Option<String>,
-    pub inputs: Option<HashMap<String, Input>>,
 }
+
+impl ConfigExt for Processor {}
 
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Payload {
