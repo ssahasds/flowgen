@@ -36,9 +36,11 @@ pub struct Processor {
     /// Optional human-readable label for identifying this subscriber configuration.
     pub label: Option<String>,
     /// Reference to credential store entry containing Salesforce authentication details.
-    pub credentials: String,
-    /// Salesforce job for query or data ingestion.
-    pub job: String,
+    pub credentials:  Option<String>,
+    /// Salesforce query input for job create.
+    pub query:  Option<String>,
+    /// Salesforce object for job create.
+    pub object: String,
     /// Operation name related to Salesforce bulk job.
     pub operation: Operation,
     /// Output file format for the bulk job.
