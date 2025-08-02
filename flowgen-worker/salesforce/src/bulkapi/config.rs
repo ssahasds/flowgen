@@ -40,9 +40,9 @@ pub struct Processor {
     /// Salesforce query input for job create.
     pub query:  Option<String>,
     /// Salesforce object for job create.
-    pub object: String,
+    pub object: Option<String>,
     /// Operation name related to Salesforce bulk job.
-    pub operation: Operation,
+    pub operation: Option<Operation>,
     /// Output file format for the bulk job.
     pub content_type: Option<ContentType>,
     /// Column delimeter for output file for the bulk job.
@@ -84,7 +84,7 @@ pub enum Operation {
 pub enum ContentType {
     #[default]
     #[serde(rename = "CSV")]
-    Csv, /// Currently only supports CSV.
+    Csv, // Currently only supports CSV.
 }
 
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
