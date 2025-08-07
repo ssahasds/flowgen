@@ -5,19 +5,19 @@ use flowgen_core::{
 };
 use oauth2::TokenResponse;
 use serde::{Deserialize, Serialize};
-use serde_json::{json,Value};
+use serde_json::json;
 use std::{path::Path, sync::Arc};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{event, Level};
 
-const DEFAULT_MESSAGE_SUBJECT: &str = "bulkapi";
-const DEFAULT_URI_PATH: &str = "/services/data/v61.0/jobs/query";
+const DEFAULT_MESSAGE_SUBJECT: &'static str = "bulkapi";
+const DEFAULT_URI_PATH: &'static str = "/services/data/v61.0/jobs/query";
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
     SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),
-    #[error("missing required attribute: {}", 1)]
+    #[error("missing required attribute: {}", _0)]
     MissingRequiredAttribute(String),
     #[error("no array data available")]
     EmptyArray(),
@@ -31,8 +31,8 @@ pub enum Error {
     SalesforceAuth(#[from] crate::client::Error),
     #[error(transparent)]
     Event(#[from] flowgen_core::event::Error),
-    #[error("could not connect to Salesforce: {}", _0)]
-    NoSalesforceAuthToken(String),
+    #[error("could not connect to Salesforce")]
+    NoSalesforceAuthToken(),
 }
 #[derive(Deserialize, Serialize, PartialEq, Clone, Debug, Default)]
 struct Credentials {
@@ -71,26 +71,24 @@ impl EventHandler {
             .await?;
 
         let token_result = sfdc_client.token_result.ok_or_else(|| {
-            Error::NoSalesforceAuthToken("Error getting access token".to_string())
+            Error::NoSalesforceAuthToken()
         })?;
 
-        let payload: Value;
-
-        match self.config.operation {
+        let payload = match self.config.operation {
             super::config::Operation::Query | super::config::Operation::QueryAll => {
                 // Create payload for query or queryall job.
-                payload = json!({
+                json!({
                     "operation": self.config.operation,
-                    "query": Some(self.config.query.clone()),
-                    "contentType": Some(self.config.content_type.clone()),
-                    "columnDelimiter": Some(self.config.column_delimiter.clone()),
-                    "lineEnding": Some(self.config.line_ending.clone()),
+                    "query": Some(&self.config.query),
+                    "contentType": Some(&self.config.content_type),
+                    "columnDelimiter": Some(&self.config.column_delimiter),
+                    "lineEnding": Some(&self.config.line_ending),
                 });
             }
             _ => {
                 todo!("Implement other operations like Insert, Update, Upsert, Delete, HardDelete");
             }
-        }
+        };
 
         // Create http client with sf endpoint.
         let mut client = self

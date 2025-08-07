@@ -50,7 +50,7 @@ pub enum Error {
     },
 
     #[error("flow: {flow}, task_id: {task_id}, source: {source}")]
-    BulkapiProcessor {
+    BulkapiJobCreatorError {
         #[source]
         source: flowgen_salesforce::bulkapi::job::Error,
         flow: String,
@@ -235,7 +235,7 @@ impl Flow<'_> {
                     task_list.push(task);
                 }
 
-                Task::salesforce_bulkiapi_job(config) => {
+                Task::salesforce_bulkapi_job_creator(config) => {
                     let config = Arc::new(config.to_owned());
                     let rx = tx.subscribe();
                     let tx = tx.clone();
@@ -248,14 +248,14 @@ impl Flow<'_> {
                             .current_task_id(i)
                             .build()
                             .await
-                            .map_err(|e| Error::BulkapiProcessor {
+                            .map_err(|e| Error::BulkapiJobCreatorError {
                                 source: e,
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
-                            .map_err(|e| Error::BulkapiProcessor {
+                            .map_err(|e| Error::BulkapiJobCreatorError {
                                 source: e,
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
