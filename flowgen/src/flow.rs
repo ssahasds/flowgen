@@ -52,7 +52,7 @@ pub enum Error {
     #[error("flow: {flow}, task_id: {task_id}, source: {source}")]
     BulkapiJobCreatorError {
         #[source]
-        source: flowgen_salesforce::bulkapi::job::Error,
+        source: flowgen_salesforce::bulkapi::job_creator::Error,
         flow: String,
         task_id: usize,
     },
@@ -241,7 +241,7 @@ impl Flow<'_> {
                     let tx = tx.clone();
                     let flow_config = Arc::clone(&self.config);
                     let task: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-                        flowgen_salesforce::bulkapi::job::ProcessorBuilder::new()
+                        flowgen_salesforce::bulkapi::job_creator::ProcessorBuilder::new()
                             .config(config)
                             .receiver(rx)
                             .sender(tx)
