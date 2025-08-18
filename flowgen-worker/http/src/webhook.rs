@@ -1,4 +1,4 @@
-use axum::{body::Body, extract::Request, response::IntoResponse, routing::MethodRouter, Router};
+use axum::{body::Body, extract::Request, response::IntoResponse, routing::MethodRouter};
 use chrono::Utc;
 use flowgen_core::event::{Event, EventBuilder, EventData};
 use reqwest::{header::HeaderMap, StatusCode};
@@ -10,7 +10,6 @@ use tracing::{event, Level};
 const DEFAULT_MESSAGE_SUBJECT: &str = "http.webhook.in";
 const DEFAULT_HEADERS_KEY: &str = "headers";
 const DEFAULT_PAYLOAD_KEY: &str = "payload";
-const DEFAULT_HTTP_PORT: &str = "3000";
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
@@ -29,6 +28,8 @@ pub enum Error {
     MissingRequiredAttribute(String),
 }
 
+/// Implements Axum IntoResponse trait so that errors
+/// can be propagated from handle function.
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         let status = match &self {
@@ -101,7 +102,7 @@ impl EventHandler {
             .build()?;
 
         self.tx.send(e)?;
-        event!(Level::INFO, "event processed: {}", subject);
+        event!(Level::INFO, "Event processed: {}", subject);
         Ok(StatusCode::OK)
     }
 }

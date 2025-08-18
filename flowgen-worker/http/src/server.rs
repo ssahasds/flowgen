@@ -11,7 +11,7 @@ pub enum Error {
     IO(#[from] std::io::Error),
 }
 
-/// Shared HTTP server manager that allows multiple webhook processors to register routes
+/// Shared HTTP server manager that allows multiple webhook processors to register routes.
 #[derive(Debug, Clone)]
 pub struct HttpServerManager {
     routes: Arc<RwLock<HashMap<String, MethodRouter>>>,
@@ -19,7 +19,7 @@ pub struct HttpServerManager {
 }
 
 impl HttpServerManager {
-    /// Create a new HTTP server manager
+    /// Create a new HTTP server manager.
     pub fn new() -> Self {
         Self {
             routes: Arc::new(RwLock::new(HashMap::new())),
@@ -27,14 +27,14 @@ impl HttpServerManager {
         }
     }
 
-    /// Register a route with the server manager
+    /// Register a route with the server manager.
     pub async fn register_route(&self, path: String, method_router: MethodRouter) {
         let mut routes = self.routes.write().await;
         event!(Level::INFO, "Registering HTTP route: {}", path);
         routes.insert(path, method_router);
     }
 
-    /// Start the HTTP server with all registered routes
+    /// Start the HTTP server with all registered routes.
     pub async fn start_server(&self) -> Result<(), Error> {
         let mut server_started = self.server_started.lock().await;
         if *server_started {
@@ -45,22 +45,26 @@ impl HttpServerManager {
         let routes = self.routes.read().await;
         let mut router = Router::new();
 
-        // Add all registered routes to the router
+        // Add all registered routes to the router.
         for (path, method_router) in routes.iter() {
             event!(Level::INFO, "Adding route to server: {}", path);
             router = router.route(path, method_router.clone());
         }
 
-        // Start the server
-        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", DEFAULT_HTTP_PORT)).await?;
-        event!(Level::INFO, "Starting HTTP server on port {}", DEFAULT_HTTP_PORT);
+        // Start the server.
+        let listener =
+            tokio::net::TcpListener::bind(format!("0.0.0.0:{DEFAULT_HTTP_PORT}")).await?;
+        event!(
+            Level::INFO,
+            "Starting HTTP server on port {}",
+            DEFAULT_HTTP_PORT
+        );
 
         *server_started = true;
-        // This will block until the server shuts down
         axum::serve(listener, router).await.map_err(Error::IO)
     }
 
-    /// Check if server has been started
+    /// Check if server has been started.
     pub async fn is_started(&self) -> bool {
         *self.server_started.lock().await
     }
