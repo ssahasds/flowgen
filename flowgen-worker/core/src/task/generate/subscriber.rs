@@ -5,9 +5,10 @@ use std::{sync::Arc, time::Duration};
 use tokio::{sync::broadcast::Sender, time};
 use tracing::{event, Level};
 
-const DEFAULT_MESSAGE_SUBJECT: &'static str = "generate";
+const DEFAULT_MESSAGE_SUBJECT: &str = "generate";
 
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
     #[error(transparent)]
     SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),

@@ -1974,6 +1974,7 @@ dependencies = [
  "handlebars",
  "regex",
  "serde",
+ "serde_avro_fast",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",

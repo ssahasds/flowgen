@@ -20,6 +20,13 @@ pub enum Error {
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
+    ConverProcessor {
+        #[source]
+        source: flowgen_core::task::convert::processor::Error,
+        flow: String,
+        task_id: usize,
+    },
+    #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     EnumerateProcessor {
         #[source]
         source: flowgen_core::task::enumerate::processor::Error,
@@ -158,6 +165,36 @@ impl Flow<'_> {
                 // });
                 // task_list.push(task);
                 // }
+                Task::convert(config) => {
+                    let config = Arc::new(config.to_owned());
+                    let rx = tx.subscribe();
+                    let tx = tx.clone();
+                    let flow_config = Arc::clone(&self.config);
+                    let task: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                        flowgen_core::task::convert::processor::ProcessorBuilder::new()
+                            .config(config)
+                            .receiver(rx)
+                            .sender(tx)
+                            .current_task_id(i)
+                            .build()
+                            .await
+                            .map_err(|e| Error::ConverProcessor {
+                                source: e,
+                                flow: flow_config.flow.name.to_owned(),
+                                task_id: i,
+                            })?
+                            .run()
+                            .await
+                            .map_err(|e| Error::ConverProcessor {
+                                source: e,
+                                flow: flow_config.flow.name.to_owned(),
+                                task_id: i,
+                            })?;
+
+                        Ok(())
+                    });
+                    task_list.push(task);
+                }
                 Task::enumerate(config) => {
                     let config = Arc::new(config.to_owned());
                     let rx = tx.subscribe();
