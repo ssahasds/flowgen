@@ -1,0 +1,7 @@
+# Determines if cache service should be used.
+cache:
+  enabled: true
+  credentials_path: "path_to_credentials"
+# Points to config directory.
+flows:
+  dir: "path_to_configs_folder"
