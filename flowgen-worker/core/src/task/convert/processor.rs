@@ -4,7 +4,10 @@ use chrono::Utc;
 use serde_avro_fast::ser;
 use serde_json::{Map, Value};
 use std::sync::Arc;
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::{
+    broadcast::{Receiver, Sender},
+    Mutex,
+};
 use tracing::{event, Level};
 
 const DEFAULT_MESSAGE_SUBJECT: &str = "convert";
@@ -58,7 +61,9 @@ struct EventHandler {
 }
 
 struct AvroSerializerOptions {
-    schema: serde_avro_fast::Schema,
+    schema_string: String,
+    // Store the serializer config wrapped in Mutex for thread-safe access
+    serializer_config: Mutex<ser::SerializerConfig<'static>>,
 }
 
 impl EventHandler {
@@ -69,13 +74,12 @@ impl EventHandler {
                 Some(serializer_opts) => {
                     transform_keys(&mut data);
 
-                    // This needs to be optimized ny sharing serializer_config.
-                    let mut serializer_config = ser::SerializerConfig::new(&serializer_opts.schema);
+                    let mut serializer_config = serializer_opts.serializer_config.lock().await;
                     let raw_bytes: Vec<u8> =
                         serde_avro_fast::to_datum_vec(&data, &mut serializer_config)?;
 
                     EventData::Avro(AvroData {
-                        schema: serializer_opts.schema.json().to_string(),
+                        schema: serializer_opts.schema_string.clone(),
                         raw_bytes,
                     })
                 }
@@ -114,7 +118,6 @@ pub struct Processor {
 impl super::super::runner::Runner for Processor {
     type Error = Error;
     async fn run(mut self) -> Result<(), Error> {
-        // Create the serializer options once, before the loop
         let serializer = match self.config.target_format {
             super::config::TargetFormat::Avro => {
                 let schema_string = self
@@ -126,7 +129,17 @@ impl super::super::runner::Runner for Processor {
 
                 let schema: serde_avro_fast::Schema = schema_string.parse()?;
 
-                Some(Arc::new(AvroSerializerOptions { schema }))
+                // Leak the schema to get a 'static reference
+                // This is intentional and safe in this context since the schema
+                // is effectively program-lifetime data.
+                let leaked_schema: &'static serde_avro_fast::Schema = Box::leak(Box::new(schema));
+
+                let serializer_config = ser::SerializerConfig::new(leaked_schema);
+
+                Some(Arc::new(AvroSerializerOptions {
+                    schema_string,
+                    serializer_config: Mutex::new(serializer_config),
+                }))
             }
         };
 
