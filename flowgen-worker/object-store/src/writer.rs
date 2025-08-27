@@ -2,7 +2,7 @@ use super::config::{DEFAULT_AVRO_EXTENSION, DEFAULT_CSV_EXTENSION, DEFAULT_JSON_
 use apache_avro::from_avro_datum;
 use bytes::Bytes;
 use chrono::{DateTime, Datelike, Utc};
-use flowgen_core::connect::client::Client;
+use flowgen_core::client::Client;
 use flowgen_core::event::Event;
 use object_store::PutPayload;
 use std::{path::PathBuf, sync::Arc};

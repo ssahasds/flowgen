@@ -1,6 +1,6 @@
 use flowgen_core::{
     cache::Cache,
-    connect::client::Client,
+    client::Client,
     event::{AvroData, Event, EventBuilder, EventData},
 };
 use salesforce_pubsub::eventbus::v1::{FetchRequest, SchemaRequest, TopicRequest};
@@ -34,9 +34,7 @@ pub enum Error {
     #[error(transparent)]
     Bincode(#[from] bincode::Error),
     #[error(transparent)]
-    RecordBatch(#[from] flowgen_core::convert::recordbatch::Error),
-    #[error(transparent)]
-    Service(#[from] flowgen_core::connect::service::Error),
+    Service(#[from] flowgen_core::service::Error),
     #[error("missing required attribute: {}", _0)]
     MissingRequiredAttribute(String),
     #[error("cache error: {0}")]
@@ -229,7 +227,7 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
         };
 
         // Create gRPC service connection
-        let service = flowgen_core::connect::service::ServiceBuilder::new()
+        let service = flowgen_core::service::ServiceBuilder::new()
             .endpoint(endpoint.to_owned())
             .build()
             .map_err(Error::Service)?

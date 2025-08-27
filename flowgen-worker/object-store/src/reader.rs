@@ -4,7 +4,7 @@ use bytes::Bytes;
 use chrono::Utc;
 use flowgen_core::cache::Cache;
 use flowgen_core::event::{Event, EventBuilder};
-use flowgen_core::{connect::client::Client, event::EventData};
+use flowgen_core::{client::Client, event::EventData};
 use object_store::GetResultPayload;
 use serde_json::Value;
 use std::io::{BufReader, Seek};

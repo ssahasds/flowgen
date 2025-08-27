@@ -1,9 +1,9 @@
 use chrono::Utc;
 use flowgen_core::{
+    client::Client,
     config::ConfigExt,
-    connect::client::Client,
-    convert::serde::{MapExt, StringExt},
     event::Event,
+    serde::{MapExt, StringExt},
 };
 use salesforce_pubsub::eventbus::v1::{ProducerEvent, PublishRequest, SchemaRequest, TopicRequest};
 use serde_avro_fast::{ser, Schema};
@@ -23,19 +23,17 @@ pub enum Error {
     #[error(transparent)]
     SalesforceAuth(#[from] crate::client::Error),
     #[error(transparent)]
-    SerdeExt(#[from] flowgen_core::convert::serde::Error),
+    SerdeExt(#[from] flowgen_core::serde::Error),
     #[error(transparent)]
     SerdeAvro(#[from] serde_avro_fast::ser::SerError),
     #[error(transparent)]
     Render(#[from] flowgen_core::config::Error),
     #[error(transparent)]
-    RecordBatch(#[from] flowgen_core::convert::recordbatch::Error),
-    #[error(transparent)]
     SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),
     #[error(transparent)]
     Event(#[from] flowgen_core::event::Error),
     #[error(transparent)]
-    Service(#[from] flowgen_core::connect::service::Error),
+    Service(#[from] flowgen_core::service::Error),
     #[error("missing required event attribute: {}", _0)]
     MissingRequiredAttribute(String),
     #[error("empty object")]
@@ -56,7 +54,7 @@ impl flowgen_core::task::runner::Runner for Publisher {
         let config = self.config.as_ref();
         let a = Path::new(&config.credentials);
 
-        let service = flowgen_core::connect::service::ServiceBuilder::new()
+        let service = flowgen_core::service::ServiceBuilder::new()
             .endpoint(format!("{DEFAULT_PUBSUB_URI}:{DEFAULT_PUBSUB_PORT}"))
             .build()
             .map_err(Error::Service)?

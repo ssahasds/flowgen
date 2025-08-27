@@ -3,9 +3,7 @@ use std::fmt::Debug;
 
 #[derive(PartialEq, Clone, Debug, Deserialize, Serialize)]
 pub struct CacheOptions {
-    /// Key to use when storing data in cache.
     pub insert_key: Option<String>,
-    /// Key to use when retrieving data from cache.
     pub retrieve_key: Option<String>,
 }
 

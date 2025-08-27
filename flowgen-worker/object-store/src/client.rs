@@ -34,7 +34,7 @@ pub struct Client {
     pub context: Option<Context>,
 }
 
-impl flowgen_core::connect::client::Client for Client {
+impl flowgen_core::client::Client for Client {
     type Error = Error;
 
     async fn connect(mut self) -> Result<Client, Error> {

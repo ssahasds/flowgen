@@ -16,7 +16,6 @@ pub struct Flow {
 #[allow(non_camel_case_types)]
 pub enum Task {
     convert(flowgen_core::task::convert::config::Processor),
-    enumerate(flowgen_core::task::enumerate::config::Processor),
     object_store_reader(flowgen_object_store::config::Reader),
     object_store_writer(flowgen_object_store::config::Writer),
     generate(flowgen_core::task::generate::config::Subscriber),

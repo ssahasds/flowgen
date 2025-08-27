@@ -14,8 +14,6 @@ pub enum Error {
     SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),
     #[error(transparent)]
     Event(#[from] crate::event::Error),
-    #[error(transparent)]
-    RecordBatch(#[from] crate::convert::recordbatch::Error),
     #[error("missing required attribute: {}", _0)]
     MissingRequiredAttribute(String),
 }
@@ -35,12 +33,7 @@ impl crate::task::runner::Runner for Subscriber {
 
             let timestamp = Utc::now().timestamp_micros();
             let subject = match &self.config.label {
-                Some(label) => format!(
-                    "{}.{}.{}",
-                    DEFAULT_MESSAGE_SUBJECT,
-                    label.to_lowercase(),
-                    timestamp
-                ),
+                Some(label) => format!("{}.{}", label.to_lowercase(), timestamp),
                 None => format!("{DEFAULT_MESSAGE_SUBJECT}.{timestamp}"),
             };
 

@@ -138,12 +138,12 @@ impl Context {
 
 pub struct ContextBuilder {
     client: Option<client::Client>,
-    service: flowgen_core::connect::service::Service,
+    service: flowgen_core::service::Service,
 }
 
 impl ContextBuilder {
     // Creates a new instance of builder..
-    pub fn new(service: flowgen_core::connect::service::Service) -> Self {
+    pub fn new(service: flowgen_core::service::Service) -> Self {
         ContextBuilder {
             client: None,
             service,
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn test_build_missing_client() {
-        let service = flowgen_core::connect::service::ServiceBuilder::new()
+        let service = flowgen_core::service::ServiceBuilder::new()
             .build()
             .unwrap();
         let client = ContextBuilder::new(service).build();
@@ -205,7 +205,7 @@ mod tests {
     }
     #[test]
     fn test_build_missing_token() {
-        let service = flowgen_core::connect::service::ServiceBuilder::new()
+        let service = flowgen_core::service::ServiceBuilder::new()
             .build()
             .unwrap();
         let creds: &str = r#"

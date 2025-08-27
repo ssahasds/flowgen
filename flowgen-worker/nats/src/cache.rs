@@ -1,7 +1,7 @@
 //! NATS JetStream Key-Value store based cache implementation.
 //! Includes [`Cache`], [`CacheBuilder`], and [`Error`].
 
-use flowgen_core::connect::client::Client as FlowgenClientTrait;
+use flowgen_core::client::Client as FlowgenClientTrait;
 use std::path::PathBuf;
 
 /// Errors during NATS-based cache interaction.

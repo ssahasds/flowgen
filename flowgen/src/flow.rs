@@ -20,13 +20,6 @@ pub enum Error {
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
-    EnumerateProcessor {
-        #[source]
-        source: flowgen_core::task::enumerate::processor::Error,
-        flow: String,
-        task_id: usize,
-    },
-    #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     SalesforcePubSubSubscriber {
         #[source]
         source: flowgen_salesforce::pubsub::subscriber::Error,
@@ -147,36 +140,6 @@ impl Flow<'_> {
                             .run()
                             .await
                             .map_err(|e| Error::ConverProcessor {
-                                source: e,
-                                flow: flow_config.flow.name.to_owned(),
-                                task_id: i,
-                            })?;
-
-                        Ok(())
-                    });
-                    task_list.push(task);
-                }
-                Task::enumerate(config) => {
-                    let config = Arc::new(config.to_owned());
-                    let rx = tx.subscribe();
-                    let tx = tx.clone();
-                    let flow_config = Arc::clone(&self.config);
-                    let task: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
-                        flowgen_core::task::enumerate::processor::ProcessorBuilder::new()
-                            .config(config)
-                            .receiver(rx)
-                            .sender(tx)
-                            .current_task_id(i)
-                            .build()
-                            .await
-                            .map_err(|e| Error::EnumerateProcessor {
-                                source: e,
-                                flow: flow_config.flow.name.to_owned(),
-                                task_id: i,
-                            })?
-                            .run()
-                            .await
-                            .map_err(|e| Error::EnumerateProcessor {
                                 source: e,
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
