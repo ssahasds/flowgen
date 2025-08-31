@@ -11,7 +11,9 @@ use serde::{Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::io::{Read, Seek, Write};
 use std::sync::Arc;
-use tracing::{event, Level};
+
+/// Default log message format for event processing.
+pub const DEFAULT_LOG_MESSAGE: &str = "Event processed";
 
 /// Subject suffix options for event subjects.
 pub enum SubjectSuffix<'a> {
@@ -80,12 +82,7 @@ pub struct Event {
     pub timestamp: i64,
 }
 
-impl Event {
-    /// Logs the event processing with INFO level.
-    pub fn log(&self) {
-        event!(Level::INFO, "Event processed: {}", self.subject);
-    }
-}
+impl Event {}
 
 /// Event data payload supporting multiple serialization formats.
 #[derive(Debug, Clone)]
@@ -217,7 +214,7 @@ impl<R: Read + Seek> FromReader<R> for EventData {
                 has_header,
             } => {
                 let (schema, _) = Format::default()
-                    .with_header(true)
+                    .with_header(has_header)
                     .infer_schema(&mut reader, Some(100))?;
                 reader.rewind()?;
 
@@ -232,6 +229,7 @@ impl<R: Read + Seek> FromReader<R> for EventData {
                 }
                 Ok(events)
             }
+
             ContentType::Avro => {
                 let avro_reader = AvroReader::new(reader)?;
                 let schema = avro_reader.writer_schema().clone();
@@ -291,31 +289,19 @@ mod tests {
 
     #[test]
     fn test_generate_subject_with_label() {
-        let subject = generate_subject(
-            Some("TestLabel"),
-            "base.subject",
-            SubjectSuffix::Id("123"),
-        );
+        let subject = generate_subject(Some("TestLabel"), "base.subject", SubjectSuffix::Id("123"));
         assert_eq!(subject, "testlabel.123");
     }
 
     #[test]
     fn test_generate_subject_without_label() {
-        let subject = generate_subject(
-            None,
-            "base.subject",
-            SubjectSuffix::Id("456"),
-        );
+        let subject = generate_subject(None, "base.subject", SubjectSuffix::Id("456"));
         assert_eq!(subject, "base.subject.456");
     }
 
     #[test]
     fn test_generate_subject_with_timestamp() {
-        let subject = generate_subject(
-            Some("Label"),
-            "base.subject",
-            SubjectSuffix::Timestamp,
-        );
+        let subject = generate_subject(Some("Label"), "base.subject", SubjectSuffix::Timestamp);
         assert!(subject.starts_with("label."));
         assert!(subject.len() > "label.".len());
     }
@@ -334,7 +320,7 @@ mod tests {
         assert_eq!(event.id, Some("test-id".to_string()));
         assert_eq!(event.current_task_id, Some(1));
         assert!(event.timestamp > 0);
-        
+
         match event.data {
             EventData::Json(value) => assert_eq!(value, json!({"test": "value"})),
             _ => panic!("Expected JSON data"),
@@ -348,7 +334,10 @@ mod tests {
             .build();
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing required attribute: data"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing required attribute: data"));
     }
 
     #[test]
@@ -358,7 +347,10 @@ mod tests {
             .build();
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing required attribute: subject"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing required attribute: subject"));
     }
 
     #[test]
@@ -379,7 +371,7 @@ mod tests {
     fn test_event_data_json_conversion() {
         let json_data = json!({"field": "value", "number": 42});
         let event_data = EventData::Json(json_data.clone());
-        
+
         let converted = Value::try_from(&event_data).unwrap();
         assert_eq!(converted, json_data);
     }
@@ -388,10 +380,10 @@ mod tests {
     fn test_event_data_json_to_writer() {
         let json_data = json!({"test": "data"});
         let event_data = EventData::Json(json_data);
-        
+
         let mut buffer = Vec::new();
         event_data.to_writer(&mut buffer).unwrap();
-        
+
         let result: serde_json::Value = serde_json::from_slice(&buffer).unwrap();
         assert_eq!(result, json!({"test": "data"}));
     }
@@ -400,10 +392,10 @@ mod tests {
     fn test_event_data_from_json_reader() {
         let json_content = r#"{"name": "test", "value": 123}"#;
         let cursor = Cursor::new(json_content);
-        
+
         let events = EventData::from_reader(cursor, ContentType::Json).unwrap();
         assert_eq!(events.len(), 1);
-        
+
         match &events[0] {
             EventData::Json(value) => {
                 assert_eq!(value["name"], "test");

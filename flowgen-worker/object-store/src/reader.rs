@@ -1,12 +1,11 @@
 use super::config::{DEFAULT_AVRO_EXTENSION, DEFAULT_CSV_EXTENSION, DEFAULT_JSON_EXTENSION};
-use arrow::csv::reader::Format;
 use bytes::Bytes;
-use flowgen_core::cache::Cache;
-use flowgen_core::event::{generate_subject, Event, EventBuilder, SubjectSuffix};
 use flowgen_core::buffer::{ContentType, FromReader};
+use flowgen_core::cache::Cache;
+use flowgen_core::event::{generate_subject, Event, EventBuilder, SubjectSuffix, DEFAULT_LOG_MESSAGE};
 use flowgen_core::{client::Client, event::EventData};
 use object_store::GetResultPayload;
-use std::io::{BufReader, Seek};
+use std::io::BufReader;
 use std::sync::Arc;
 use tokio::sync::{
     broadcast::{Receiver, Sender},
@@ -84,29 +83,12 @@ impl<T: Cache> EventHandler<T> {
             .ok_or_else(Error::NoFileExtension)?;
 
         match result.payload {
-            GetResultPayload::File(mut file, _) => {
+            GetResultPayload::File(file, _) => {
                 let content_type = match extension {
                     DEFAULT_JSON_EXTENSION => ContentType::Json,
                     DEFAULT_CSV_EXTENSION => {
                         let batch_size = self.config.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
                         let has_header = self.config.has_header.unwrap_or(DEFAULT_HAS_HEADER);
-
-                        // Handle CSV schema caching before processing the events.
-                        if let Some(cache_options) = &self.config.cache_options {
-                            if let Some(insert_key) = &cache_options.insert_key {
-                                let (schema, _) = Format::default()
-                                    .with_header(true)
-                                    .infer_schema(&mut file, Some(100))
-                                    .map_err(Error::Arrow)?;
-                                file.rewind().map_err(Error::IO)?;
-
-                                let schema_bytes = Bytes::from(schema.to_string());
-                                self.cache
-                                    .put(insert_key.as_str(), schema_bytes)
-                                    .await
-                                    .map_err(|_| Error::Cache())?;
-                            }
-                        }
 
                         ContentType::Csv {
                             batch_size,
@@ -121,7 +103,23 @@ impl<T: Cache> EventHandler<T> {
                 };
 
                 let reader = BufReader::new(file);
-                let event_data_list = EventData::from_reader(reader, content_type)?;
+                let event_data_list = EventData::from_reader(reader, content_type.clone())?;
+
+                if let ContentType::Csv { .. } = content_type {
+                    if let Some(cache_options) = &self.config.cache_options {
+                        if let Some(insert_key) = &cache_options.insert_key {
+                            if let Some(EventData::ArrowRecordBatch(batch)) =
+                                event_data_list.first()
+                            {
+                                let schema_bytes = Bytes::from(batch.schema().to_string());
+                                self.cache
+                                    .put(insert_key.as_str(), schema_bytes)
+                                    .await
+                                    .map_err(|_| Error::Cache())?;
+                            }
+                        }
+                    }
+                }
 
                 for event_data in event_data_list {
                     // Generate event subject.
@@ -138,7 +136,7 @@ impl<T: Cache> EventHandler<T> {
                         .current_task_id(self.current_task_id)
                         .build()?;
 
-                    e.log();
+                    event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
                     self.tx.send(e)?;
                 }
             }

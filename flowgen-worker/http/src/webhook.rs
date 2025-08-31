@@ -1,5 +1,5 @@
 use axum::{body::Body, extract::Request, response::IntoResponse, routing::MethodRouter};
-use flowgen_core::event::{generate_subject, Event, EventBuilder, EventData, SubjectSuffix};
+use flowgen_core::event::{generate_subject, Event, EventBuilder, EventData, SubjectSuffix, DEFAULT_LOG_MESSAGE};
 use reqwest::{header::HeaderMap, StatusCode};
 use serde_json::{json, Map, Value};
 use std::sync::Arc;
@@ -95,7 +95,7 @@ impl EventHandler {
             .current_task_id(self.current_task_id)
             .build()?;
 
-        e.log();
+        event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
         self.tx.send(e)?;
         Ok(StatusCode::OK)
     }

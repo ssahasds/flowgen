@@ -3,10 +3,13 @@
 //! Implements a timer-based event generator that creates events at regular intervals
 //! with optional message content and count limits for testing and simulation workflows.
 
-use crate::event::{generate_subject, Event, EventBuilder, EventData, SubjectSuffix};
+use crate::event::{
+    generate_subject, Event, EventBuilder, EventData, SubjectSuffix, DEFAULT_LOG_MESSAGE,
+};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::broadcast::Sender, time};
+use tracing::{event, Level};
 
 /// Default subject prefix for generated events.
 const DEFAULT_MESSAGE_SUBJECT: &str = "generate";
@@ -62,7 +65,7 @@ impl crate::task::runner::Runner for Subscriber {
                 .current_task_id(self.current_task_id)
                 .build()?;
 
-            e.log();
+            event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
             self.tx.send(e)?;
 
             match self.config.count {

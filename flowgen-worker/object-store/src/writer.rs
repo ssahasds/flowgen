@@ -2,7 +2,7 @@ use super::config::{DEFAULT_AVRO_EXTENSION, DEFAULT_CSV_EXTENSION, DEFAULT_JSON_
 use bytes::Bytes;
 use chrono::{DateTime, Datelike, Utc};
 use flowgen_core::buffer::ToWriter;
-use flowgen_core::event::{Event, EventBuilder, EventData, SubjectSuffix};
+use flowgen_core::event::{Event, EventBuilder, EventData, SubjectSuffix, DEFAULT_LOG_MESSAGE};
 use flowgen_core::{client::Client, event::generate_subject};
 use object_store::PutPayload;
 use std::{path::PathBuf, sync::Arc};
@@ -108,7 +108,7 @@ impl EventHandler {
             .subject(subject)
             .data(EventData::Json(data))
             .build()?;
-        e.log();
+        event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
         Ok(())
     }
 

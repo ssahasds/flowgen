@@ -4,7 +4,7 @@
 //! such as JSON to Avro with schema validation and key normalization.
 
 use super::super::super::event::{Event, EventBuilder, EventData};
-use crate::event::{generate_subject, AvroData, SubjectSuffix};
+use crate::event::{generate_subject, AvroData, SubjectSuffix, DEFAULT_LOG_MESSAGE};
 use serde_avro_fast::ser;
 use serde_json::{Map, Value};
 use std::sync::Arc;
@@ -120,7 +120,7 @@ impl EventHandler {
             .current_task_id(self.current_task_id)
             .build()?;
 
-        e.log();
+        event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
         self.tx.send(e)?;
         Ok(())
     }

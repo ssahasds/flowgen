@@ -1,7 +1,7 @@
 use flowgen_core::{
     cache::Cache,
     client::Client,
-    event::{generate_subject, AvroData, Event, EventBuilder, EventData, SubjectSuffix},
+    event::{generate_subject, AvroData, Event, EventBuilder, EventData, SubjectSuffix, DEFAULT_LOG_MESSAGE},
 };
 use salesforce_pubsub::eventbus::v1::{FetchRequest, SchemaRequest, TopicRequest};
 use std::sync::Arc;
@@ -183,7 +183,7 @@ impl<T: Cache> EventHandler<T> {
                                 .build()
                                 .map_err(Error::Event)?;
 
-                            e.log();
+                            event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
                             self.tx.send(e)?;
                         }
                     }

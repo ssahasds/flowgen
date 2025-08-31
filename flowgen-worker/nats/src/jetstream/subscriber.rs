@@ -1,9 +1,10 @@
 use super::message::NatsMessageExt;
 use async_nats::jetstream::{self};
-use flowgen_core::{client::Client, event::Event};
+use flowgen_core::{client::Client, event::{Event, DEFAULT_LOG_MESSAGE}};
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::broadcast::Sender, time};
 use tokio_stream::StreamExt;
+use tracing::{event, Level};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -71,7 +72,7 @@ impl flowgen_core::task::runner::Runner for Subscriber {
                         message.ack().await.map_err(Error::Other)?;
                         e.current_task_id = Some(self.current_task_id);
 
-                        e.log();
+                        event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
                         self.tx.send(e)?;
                     }
                 }

@@ -1,7 +1,7 @@
 use super::message::FlowgenMessageExt;
 use async_nats::jetstream::stream::{Config, DiscardPolicy, RetentionPolicy};
 use flowgen_core::client::Client;
-use flowgen_core::event::Event;
+use flowgen_core::event::{Event, DEFAULT_LOG_MESSAGE};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast::Receiver, Mutex};
 use tracing::{event, Level};
@@ -34,8 +34,8 @@ impl EventHandler {
     async fn handle(self, event: Event) -> Result<(), Error> {
         let e = event.to_publish()?;
 
-        event.log();
-        
+        event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, event.subject);
+
         self.jetstream
             .lock()
             .await
