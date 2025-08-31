@@ -15,77 +15,77 @@ pub enum Error {
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     ConverProcessor {
         #[source]
-        source: flowgen_core::task::convert::processor::Error,
+        source: Box<flowgen_core::task::convert::processor::Error>,
         flow: String,
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     SalesforcePubSubSubscriber {
         #[source]
-        source: flowgen_salesforce::pubsub::subscriber::Error,
+        source: Box<flowgen_salesforce::pubsub::subscriber::Error>,
         flow: String,
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     SalesforcePubsubPublisher {
         #[source]
-        source: flowgen_salesforce::pubsub::publisher::Error,
+        source: Box<flowgen_salesforce::pubsub::publisher::Error>,
         flow: String,
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     HttpRequestProcessor {
         #[source]
-        source: flowgen_http::request::Error,
+        source: Box<flowgen_http::request::Error>,
         flow: String,
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     HttpWebhookProcessor {
         #[source]
-        source: flowgen_http::webhook::Error,
+        source: Box<flowgen_http::webhook::Error>,
         flow: String,
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     HttpServer {
         #[source]
-        source: flowgen_http::server::Error,
+        source: Box<flowgen_http::server::Error>,
         flow: String,
         task_id: usize,
     },
     #[error("flow: {flow}, task_id: {task_id}, source: {source}")]
     NatsJetStreamPublisher {
         #[source]
-        source: flowgen_nats::jetstream::publisher::Error,
+        source: Box<flowgen_nats::jetstream::publisher::Error>,
         flow: String,
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     NatsJetStreamSubscriber {
         #[source]
-        source: flowgen_nats::jetstream::subscriber::Error,
+        source: Box<flowgen_nats::jetstream::subscriber::Error>,
         flow: String,
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     ObjectStoreReader {
         #[source]
-        source: flowgen_object_store::reader::Error,
+        source: Box<flowgen_object_store::reader::Error>,
         flow: String,
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     ObjectStoreWriter {
         #[source]
-        source: flowgen_object_store::writer::Error,
+        source: Box<flowgen_object_store::writer::Error>,
         flow: String,
         task_id: usize,
     },
     #[error("Flow: {flow}, task_id: {task_id}, source: {source}")]
     GenerateSubscriber {
         #[source]
-        source: flowgen_core::task::generate::subscriber::Error,
+        source: Box<flowgen_core::task::generate::subscriber::Error>,
         flow: String,
         task_id: usize,
     },
@@ -133,14 +133,14 @@ impl Flow<'_> {
                             .build()
                             .await
                             .map_err(|e| Error::ConverProcessor {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
                             .map_err(|e| Error::ConverProcessor {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?;
@@ -161,14 +161,14 @@ impl Flow<'_> {
                             .build()
                             .await
                             .map_err(|e| Error::GenerateSubscriber {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
                             .map_err(|e| Error::GenerateSubscriber {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?;
@@ -190,14 +190,14 @@ impl Flow<'_> {
                             .build()
                             .await
                             .map_err(|e| Error::HttpRequestProcessor {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
                             .map_err(|e| Error::HttpRequestProcessor {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?;
@@ -220,14 +220,14 @@ impl Flow<'_> {
                             .build()
                             .await
                             .map_err(|e| Error::HttpWebhookProcessor {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
                             .map_err(|e| Error::HttpWebhookProcessor {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?;
@@ -249,14 +249,14 @@ impl Flow<'_> {
                             .build()
                             .await
                             .map_err(|e| Error::NatsJetStreamSubscriber {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
                             .map_err(|e| Error::NatsJetStreamSubscriber {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?;
@@ -276,14 +276,14 @@ impl Flow<'_> {
                             .build()
                             .await
                             .map_err(|e| Error::NatsJetStreamPublisher {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
                             .map_err(|e| Error::NatsJetStreamPublisher {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?;
@@ -305,14 +305,14 @@ impl Flow<'_> {
                             .build()
                             .await
                             .map_err(|e| Error::SalesforcePubSubSubscriber {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
                             .map_err(|e| Error::SalesforcePubSubSubscriber {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?;
@@ -332,14 +332,14 @@ impl Flow<'_> {
                             .build()
                             .await
                             .map_err(|e| Error::SalesforcePubsubPublisher {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
                             .map_err(|e| Error::SalesforcePubsubPublisher {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?;
@@ -363,14 +363,14 @@ impl Flow<'_> {
                             .build()
                             .await
                             .map_err(|e| Error::ObjectStoreReader {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
                             .map_err(|e| Error::ObjectStoreReader {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?;
@@ -390,14 +390,14 @@ impl Flow<'_> {
                             .build()
                             .await
                             .map_err(|e| Error::ObjectStoreWriter {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?
                             .run()
                             .await
                             .map_err(|e| Error::ObjectStoreWriter {
-                                source: e,
+                                source: Box::new(e),
                                 flow: flow_config.flow.name.to_owned(),
                                 task_id: i,
                             })?;

@@ -189,7 +189,7 @@ impl<T: Cache> EventHandler<T> {
                     }
                 }
                 Err(e) => {
-                    return Err(Error::SalesforcePubSub(super::context::Error::Tonic(e)));
+                    return Err(Error::SalesforcePubSub(super::context::Error::Tonic(Box::new(e))));
                 }
             }
         }
