@@ -2,7 +2,7 @@ use super::config::{DEFAULT_AVRO_EXTENSION, DEFAULT_CSV_EXTENSION, DEFAULT_JSON_
 use bytes::Bytes;
 use chrono::{DateTime, Datelike, Utc};
 use flowgen_core::buffer::ToWriter;
-use flowgen_core::event::{Event, SubjectSuffix};
+use flowgen_core::event::{Event, EventBuilder, EventData, SubjectSuffix};
 use flowgen_core::{client::Client, event::generate_subject};
 use object_store::PutPayload;
 use std::{path::PathBuf, sync::Arc};
@@ -89,7 +89,7 @@ impl EventHandler {
 
         // Upload processed data to object store.
         let payload = PutPayload::from_bytes(Bytes::from(writer));
-        context.object_store.put(&object_path, payload).await?;
+        let put_result = context.object_store.put(&object_path, payload).await?;
 
         // Generate event subject.
         let base_subject = format!("{DEFAULT_MESSAGE_SUBJECT}.{filename}");
@@ -98,7 +98,18 @@ impl EventHandler {
             &base_subject,
             SubjectSuffix::Timestamp,
         );
-        event!(Level::INFO, "Event processed: {}", subject);
+
+        // Build and send event.
+        let data = serde_json::json!({
+            "status": "written",
+            "path": object_path.to_string(),
+            "e_tag": put_result.e_tag
+        });
+        let e = EventBuilder::new()
+            .subject(subject)
+            .data(EventData::Json(data))
+            .build()?;
+        e.log();
         Ok(())
     }
 
