@@ -1,15 +1,13 @@
-name: Build
+name: Test-Build-Push
 
 on:
   push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
 
 jobs:
   test-rust-latest:
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main'
     steps:
     - uses: actions/checkout@v4
       with:
@@ -18,14 +16,19 @@ jobs:
       with:
         toolchain: stable
         override: true
-    - name: Make scripts executable
-      run: chmod +x ./scripts/*.sh
-    - name: Build and test
-      run: ./scripts/build.sh
+    - name: Install system dependencies
+      run: |
+        sudo apt update -qq
+        sudo apt-get -qq install pkg-config libssl-dev protobuf-compiler git
+    - name: Add rustfmt and build
+      run: |
+        rustup component add rustfmt
+        cargo build --verbose
+        cargo test --verbose
+        cargo fmt --all
 
   test-rust-nightly:
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main'
     continue-on-error: true
     steps:
     - uses: actions/checkout@v4
@@ -35,10 +38,16 @@ jobs:
       with:
         toolchain: nightly
         override: true
-    - name: Make scripts executable
-      run: chmod +x ./scripts/*.sh
-    - name: Build and test
-      run: ./scripts/build.sh
+    - name: Install system dependencies
+      run: |
+        sudo apt update -qq
+        sudo apt-get -qq install pkg-config libssl-dev protobuf-compiler git
+    - name: Add rustfmt and build
+      run: |
+        rustup component add rustfmt
+        cargo build --verbose
+        cargo test --verbose
+        cargo fmt --all
 
   build-and-push:
     runs-on: ubuntu-latest
