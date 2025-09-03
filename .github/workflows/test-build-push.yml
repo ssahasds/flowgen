@@ -50,6 +50,7 @@ jobs:
         cargo fmt --all
 
   build-and-push:
+    needs: [test-rust-latest, test-rust-nightly]
     runs-on: ubuntu-latest
     permissions:
       contents: read
