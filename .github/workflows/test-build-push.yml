@@ -1,15 +1,13 @@
-name: Build
+name: Test-Build-Push
 
 on:
   push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
 
 jobs:
   test-rust-latest:
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main'
     steps:
     - uses: actions/checkout@v4
       with:
@@ -21,11 +19,10 @@ jobs:
     - name: Make scripts executable
       run: chmod +x ./scripts/*.sh
     - name: Build and test
-      run: ./scripts/build.sh
+      run: sudo ./scripts/build.sh
 
   test-rust-nightly:
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main'
     continue-on-error: true
     steps:
     - uses: actions/checkout@v4
@@ -38,7 +35,7 @@ jobs:
     - name: Make scripts executable
       run: chmod +x ./scripts/*.sh
     - name: Build and test
-      run: ./scripts/build.sh
+      run: sudo ./scripts/build.sh
 
   build-and-push:
     runs-on: ubuntu-latest
