@@ -20,6 +20,9 @@ pub enum Error {
     /// Failed to renew lease.
     #[error("Failed to renew lease: {0}")]
     RenewLease(String),
+    /// Failed to connect to host.
+    #[error("Failed to connect to host: {0}")]
+    Connection(String),
 }
 
 /// Trait for host coordination operations.

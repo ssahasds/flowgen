@@ -1,8 +1,9 @@
 use crate::config::{AppConfig, FlowConfig};
 use config::Config;
+use flowgen_core::client::Client;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{event, Level};
+use tracing::{event, warn, Level};
 
 /// Errors that can occur during application execution.
 #[derive(thiserror::Error, Debug)]
@@ -80,10 +81,17 @@ impl flowgen_core::task::runner::Runner for App {
                     if let Some(namespace) = &host_options.namespace {
                         host_builder = host_builder.namespace(namespace.clone());
                     }
-                    let k8s_host = host_builder.build().await?;
-                    Some(Arc::new(flowgen_core::task::context::HostClient {
-                        client: std::sync::Arc::new(k8s_host),
-                    }))
+                    match host_builder.build().connect().await {
+                        Ok(connected_host) => {
+                            Some(Arc::new(flowgen_core::task::context::HostClient {
+                                client: std::sync::Arc::new(connected_host),
+                            }))
+                        }
+                        Err(e) => {
+                            warn!("{}. Continuing without host coordination.", e);
+                            None
+                        }
+                    }
                 }
             }
         } else {

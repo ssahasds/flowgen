@@ -2,6 +2,7 @@
 //!
 //! Provides Kubernetes-based lease management using the coordination.k8s.io API.
 
+use crate::client::Client as FlowgenClient;
 use crate::host::{Error, Host};
 use async_trait::async_trait;
 use k8s_openapi::api::coordination::v1::Lease;
@@ -23,19 +24,36 @@ const DEFAULT_LEASE_DURATION_SECS: i32 = 60;
 #[derive(Clone)]
 pub struct K8sHost {
     /// Kubernetes client.
-    client: Arc<Client>,
+    client: Option<Arc<Client>>,
     /// Namespace for Kubernetes resources.
     namespace: String,
     /// Lease duration in seconds.
     lease_duration_secs: i32,
 }
 
+impl FlowgenClient for K8sHost {
+    type Error = Error;
+
+    async fn connect(mut self) -> Result<Self, Self::Error> {
+        let client = Client::try_default()
+            .await
+            .map_err(|e| Error::Connection(e.to_string()))?;
+        self.client = Some(Arc::new(client));
+        info!("Successfully connected to Kubernetes cluster");
+        Ok(self)
+    }
+}
+
 #[async_trait]
 impl Host for K8sHost {
     async fn create_lease(&self, name: &str) -> Result<(), Error> {
         let namespace = &self.namespace;
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| Error::Connection("Client not connected".to_string()))?;
 
-        let api: Api<Lease> = Api::namespaced((*self.client).clone(), namespace);
+        let api: Api<Lease> = Api::namespaced((**client).clone(), namespace);
 
         let lease = serde_json::json!({
             "apiVersion": "coordination.k8s.io/v1",
@@ -81,16 +99,17 @@ impl Host for K8sHost {
                 );
                 Ok(())
             }
-            Err(e) => {
-                error!("Failed to create lease: {}", e);
-                Err(Error::CreateLease(e.to_string()))
-            }
+            Err(e) => Err(Error::CreateLease(e.to_string())),
         }
     }
 
     async fn delete_lease(&self, name: &str, namespace: Option<&str>) -> Result<(), Error> {
         let namespace = namespace.unwrap_or(&self.namespace);
-        let api: Api<Lease> = Api::namespaced((*self.client).clone(), namespace);
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| Error::Connection("Client not connected".to_string()))?;
+        let api: Api<Lease> = Api::namespaced((**client).clone(), namespace);
 
         api.delete(name, &DeleteParams::default())
             .await
@@ -102,7 +121,11 @@ impl Host for K8sHost {
 
     async fn renew_lease(&self, name: &str, namespace: Option<&str>) -> Result<(), Error> {
         let namespace = namespace.unwrap_or(&self.namespace);
-        let api: Api<Lease> = Api::namespaced((*self.client).clone(), namespace);
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| Error::Connection("Client not connected".to_string()))?;
+        let api: Api<Lease> = Api::namespaced((**client).clone(), namespace);
 
         let patch = serde_json::json!({
             "spec": {
@@ -121,7 +144,6 @@ impl Host for K8sHost {
 
 /// Builder for K8sHost.
 pub struct K8sHostBuilder {
-    client: Option<Client>,
     namespace: String,
     lease_duration_secs: i32,
 }
@@ -129,7 +151,6 @@ pub struct K8sHostBuilder {
 impl Default for K8sHostBuilder {
     fn default() -> Self {
         Self {
-            client: None,
             namespace: DEFAULT_NAMESPACE.to_string(),
             lease_duration_secs: DEFAULT_LEASE_DURATION_SECS,
         }
@@ -140,12 +161,6 @@ impl K8sHostBuilder {
     /// Creates a new K8sHostBuilder.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Sets the Kubernetes client.
-    pub fn client(mut self, client: Client) -> Self {
-        self.client = Some(client);
-        self
     }
 
     /// Sets the namespace for Kubernetes resources.
@@ -160,18 +175,12 @@ impl K8sHostBuilder {
         self
     }
 
-    /// Builds the K8sHost instance.
-    pub async fn build(self) -> Result<K8sHost, kube::Error> {
-        let client = if let Some(client) = self.client {
-            client
-        } else {
-            Client::try_default().await?
-        };
-
-        Ok(K8sHost {
-            client: Arc::new(client),
+    /// Builds the K8sHost instance without connecting.
+    pub fn build(self) -> K8sHost {
+        K8sHost {
+            client: None,
             namespace: self.namespace,
             lease_duration_secs: self.lease_duration_secs,
-        })
+        }
     }
 }
