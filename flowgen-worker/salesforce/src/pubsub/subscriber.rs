@@ -250,7 +250,8 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
             "{}.{}.{}",
             self.task_context.flow.name, DEFAULT_MESSAGE_SUBJECT, self.config.name
         );
-        self.task_context
+        let mut task_manager_rx = self
+            .task_context
             .task_manager
             .register(
                 task_id,
@@ -303,14 +304,41 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
             pubsub,
         };
 
-        // Spawn event handler.
-        tokio::spawn(async move {
-            if let Err(err) = event_handler.handle().await {
-                event!(Level::ERROR, "{}", err);
-            }
+        // Spawn event handler task and wait for completion or leadership loss.
+        let mut handler_task = tokio::spawn(async move {
+            event_handler.handle().await
         });
 
-        Ok(())
+        // Wait for leadership changes or handler completion.
+        loop {
+            tokio::select! {
+                biased;
+
+                // Check for leadership changes.
+                Some(status) = task_manager_rx.recv() => {
+                    if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
+                        event!(Level::INFO, "Lost leadership for Salesforce subscriber {}, exiting", self.config.name);
+                        handler_task.abort();
+                        return Ok(());
+                    }
+                }
+
+                // Wait for handler to complete.
+                result = &mut handler_task => {
+                    return match result {
+                        Ok(Ok(())) => Ok(()),
+                        Ok(Err(err)) => {
+                            event!(Level::ERROR, "Salesforce subscriber error: {}", err);
+                            Err(err)
+                        }
+                        Err(err) => {
+                            event!(Level::ERROR, "Salesforce subscriber task error: {}", err);
+                            Err(Error::TaskJoin(err))
+                        }
+                    };
+                }
+            }
+        }
     }
 }
 

@@ -84,7 +84,8 @@ impl flowgen_core::task::runner::Runner for Publisher {
             "{}.{}.{}",
             self.task_context.flow.name, DEFAULT_MESSAGE_SUBJECT, self.config.name
         );
-        self.task_context
+        let mut task_manager_rx = self
+            .task_context
             .task_manager
             .register(
                 task_id,
@@ -135,16 +136,36 @@ impl flowgen_core::task::runner::Runner for Publisher {
 
             let jetstream = Arc::new(Mutex::new(jetstream));
 
-            while let Ok(event) = self.rx.recv().await {
-                if event.current_task_id == Some(self.current_task_id - 1) {
-                    let jetstream = Arc::clone(&jetstream);
-                    let event_handler = EventHandler { jetstream };
-                    // Spawn a new asynchronous task to handle event processing.
-                    tokio::spawn(async move {
-                        if let Err(err) = event_handler.handle(event).await {
-                            event!(Level::ERROR, "{}", err);
+            loop {
+                tokio::select! {
+                    biased;
+
+                    // Check for leadership changes.
+                    Some(status) = task_manager_rx.recv() => {
+                        if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
+                            event!(Level::INFO, "Lost leadership for NATS publisher {}, exiting", self.config.name);
+                            return Ok(());
                         }
-                    });
+                    }
+
+                    // Process events.
+                    result = self.rx.recv() => {
+                        match result {
+                            Ok(event) => {
+                                if event.current_task_id == Some(self.current_task_id - 1) {
+                                    let jetstream = Arc::clone(&jetstream);
+                                    let event_handler = EventHandler { jetstream };
+                                    // Spawn a new asynchronous task to handle event processing.
+                                    tokio::spawn(async move {
+                                        if let Err(err) = event_handler.handle(event).await {
+                                            event!(Level::ERROR, "{}", err);
+                                        }
+                                    });
+                                }
+                            }
+                            Err(_) => return Ok(()),
+                        }
+                    }
                 }
             }
         }

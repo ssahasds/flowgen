@@ -1300,6 +1300,7 @@ dependencies = [
  "bytes",
  "chrono",
  "flowgen_core",
+ "futures",
  "object_store",
  "serde",
  "serde_json",

@@ -150,7 +150,8 @@ impl super::super::runner::Runner for Processor {
             "{}.{}.{}",
             self.task_context.flow.name, DEFAULT_MESSAGE_SUBJECT, self.config.name
         );
-        self.task_context
+        let mut task_manager_rx = self
+            .task_context
             .task_manager
             .register(
                 task_id,
@@ -182,28 +183,48 @@ impl super::super::runner::Runner for Processor {
                 }))
             }
         };
-        while let Ok(event) = self.rx.recv().await {
-            if event.current_task_id == Some(self.current_task_id - 1) {
-                let config = Arc::clone(&self.config);
-                let tx = self.tx.clone();
-                let current_task_id = self.current_task_id;
-                let serializer = serializer.clone();
 
-                let event_handler = EventHandler {
-                    config,
-                    current_task_id,
-                    tx,
-                    serializer,
-                };
+        loop {
+            tokio::select! {
+                biased;
 
-                tokio::spawn(async move {
-                    if let Err(err) = event_handler.handle(event).await {
-                        event!(Level::ERROR, "{}", err);
+                // Check for leadership changes.
+                Some(status) = task_manager_rx.recv() => {
+                    if status == crate::task::manager::LeaderElectionResult::NotLeader {
+                        event!(Level::INFO, "Lost leadership for convert processor {}, exiting", self.config.name);
+                        return Ok(());
                     }
-                });
+                }
+
+                // Process events.
+                result = self.rx.recv() => {
+                    match result {
+                        Ok(event) => {
+                            if event.current_task_id == Some(self.current_task_id - 1) {
+                                let config = Arc::clone(&self.config);
+                                let tx = self.tx.clone();
+                                let current_task_id = self.current_task_id;
+                                let serializer = serializer.clone();
+
+                                let event_handler = EventHandler {
+                                    config,
+                                    current_task_id,
+                                    tx,
+                                    serializer,
+                                };
+
+                                tokio::spawn(async move {
+                                    if let Err(err) = event_handler.handle(event).await {
+                                        event!(Level::ERROR, "{}", err);
+                                    }
+                                });
+                            }
+                        }
+                        Err(_) => return Ok(()),
+                    }
+                }
             }
         }
-        Ok(())
     }
 }
 

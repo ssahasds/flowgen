@@ -8,7 +8,6 @@ use tracing::{debug, error, warn};
 
 /// Lease renewal interval in seconds.
 const DEFAULT_LEASE_RENEWAL_INTERVAL_SECS: u64 = 10;
-
 /// Lease acquisition retry interval in seconds.
 const DEFAULT_LEASE_RETRY_INTERVAL_SECS: u64 = 5;
 
@@ -113,7 +112,7 @@ impl TaskManager {
                             }
                             Err(e) => {
                                 // Failed to acquire lease, spawn retry task.
-                                warn!(
+                                debug!(
                                     "Did not acquire lease for task {}: {}",
                                     registration.task_id, e
                                 );
@@ -143,13 +142,15 @@ impl TaskManager {
                                                 let lease_name_renewal = lease_name_clone.clone();
                                                 let host_renewal = host.clone();
                                                 let renewal_handle = tokio::spawn(async move {
-                                                    let mut interval = tokio::time::interval(Duration::from_secs(
-                                                        DEFAULT_LEASE_RENEWAL_INTERVAL_SECS,
-                                                    ));
+                                                    let mut interval =
+                                                        tokio::time::interval(Duration::from_secs(
+                                                            DEFAULT_LEASE_RENEWAL_INTERVAL_SECS,
+                                                        ));
                                                     loop {
                                                         interval.tick().await;
-                                                        if let Err(e) =
-                                                            host_renewal.renew_lease(&lease_name_renewal, None).await
+                                                        if let Err(e) = host_renewal
+                                                            .renew_lease(&lease_name_renewal, None)
+                                                            .await
                                                         {
                                                             error!(
                                                                 "Failed to renew lease for task {}: {}",
@@ -171,7 +172,10 @@ impl TaskManager {
                                                     .insert(task_id.clone(), renewal_handle);
 
                                                 // Notify the task.
-                                                if response_tx.send(LeaderElectionResult::Leader).is_err() {
+                                                if response_tx
+                                                    .send(LeaderElectionResult::Leader)
+                                                    .is_err()
+                                                {
                                                     warn!(
                                                         "Failed to notify task {} of leadership acquisition",
                                                         task_id
@@ -250,6 +254,26 @@ impl TaskManager {
         }
 
         Ok(response_rx)
+    }
+
+    /// Cleanup all owned leases on shutdown.
+    /// Deletes all leases that this instance currently holds.
+    pub async fn shutdown(&self) -> Result<(), Error> {
+        let task_ids: Vec<String> = self.active_leases.lock().await.keys().cloned().collect();
+
+        if let Some(ref host) = self.host {
+            for task_id in task_ids {
+                // Convert task_id to lease name (same sanitization as in register).
+                let lease_name = task_id.replace('_', "-").to_lowercase();
+
+                if let Err(e) = host.delete_lease(&lease_name, None).await {
+                    warn!("Failed to delete lease {} on shutdown: {}", lease_name, e);
+                } else {
+                    debug!("Deleted lease {} on shutdown", lease_name);
+                }
+            }
+        }
+        Ok(())
     }
 }
 

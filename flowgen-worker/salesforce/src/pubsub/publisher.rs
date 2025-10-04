@@ -81,7 +81,8 @@ impl flowgen_core::task::runner::Runner for Publisher {
             "{}.{}.{}",
             self.task_context.flow.name, DEFAULT_MESSAGE_SUBJECT, self.config.name
         );
-        self.task_context
+        let mut task_manager_rx = self
+            .task_context
             .task_manager
             .register(
                 task_id,
@@ -147,51 +148,70 @@ impl flowgen_core::task::runner::Runner for Publisher {
 
         let serializer_config = &mut ser::SerializerConfig::new(&schema);
 
-        while let Ok(event) = self.rx.recv().await {
-            if event.current_task_id == Some(self.current_task_id - 1) {
-                let config = config.render(&event.data)?;
-                let payload = config.payload.to_string()?.to_value()?;
+        loop {
+            tokio::select! {
+                biased;
 
-                let mut publish_payload: Map<String, Value> = Map::new();
-                for (k, v) in payload.as_object().ok_or_else(Error::EmptyObject)? {
-                    publish_payload.insert(k.to_owned(), v.to_owned());
+                // Check for leadership changes.
+                Some(status) = task_manager_rx.recv() => {
+                    if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
+                        event!(Level::INFO, "Lost leadership for Salesforce publisher {}, exiting", self.config.name);
+                        return Ok(());
+                    }
                 }
-                let now = Utc::now().timestamp_millis();
-                publish_payload.insert("CreatedDate".to_string(), Value::Number(now.into()));
 
-                let serialized_payload: Vec<u8> =
-                    serde_avro_fast::to_datum_vec(&publish_payload, serializer_config)
-                        .map_err(Error::SerdeAvro)?;
+                // Process events.
+                result = self.rx.recv() => {
+                    match result {
+                        Ok(event) => {
+                            if event.current_task_id == Some(self.current_task_id - 1) {
+                                let config = config.render(&event.data)?;
+                                let payload = config.payload.to_string()?.to_value()?;
 
-                let mut events = Vec::new();
-                let pe = ProducerEvent {
-                    schema_id: schema_id.to_string(),
-                    payload: serialized_payload,
-                    ..Default::default()
-                };
-                events.push(pe);
+                                let mut publish_payload: Map<String, Value> = Map::new();
+                                for (k, v) in payload.as_object().ok_or_else(Error::EmptyObject)? {
+                                    publish_payload.insert(k.to_owned(), v.to_owned());
+                                }
+                                let now = Utc::now().timestamp_millis();
+                                publish_payload.insert("CreatedDate".to_string(), Value::Number(now.into()));
 
-                let _ = pubsub
-                    .lock()
-                    .await
-                    .publish(PublishRequest {
-                        topic_name: topic.to_string(),
-                        events,
-                        ..Default::default()
-                    })
-                    .await
-                    .map_err(Error::PubSub)?;
+                                let serialized_payload: Vec<u8> =
+                                    serde_avro_fast::to_datum_vec(&publish_payload, serializer_config)
+                                        .map_err(Error::SerdeAvro)?;
 
-                // Generate event subject/
-                let topic = topic_info.topic_name.replace('/', ".").to_lowercase();
-                let base_subject = format!("{}.{}", DEFAULT_MESSAGE_SUBJECT, &topic[1..]);
-                let subject =
-                    generate_subject(&self.config.name, &base_subject, SubjectSuffix::Timestamp);
+                                let mut events = Vec::new();
+                                let pe = ProducerEvent {
+                                    schema_id: schema_id.to_string(),
+                                    payload: serialized_payload,
+                                    ..Default::default()
+                                };
+                                events.push(pe);
 
-                event!(Level::INFO, "Event processed: {}", subject);
+                                let _ = pubsub
+                                    .lock()
+                                    .await
+                                    .publish(PublishRequest {
+                                        topic_name: topic.to_string(),
+                                        events,
+                                        ..Default::default()
+                                    })
+                                    .await
+                                    .map_err(Error::PubSub)?;
+
+                                // Generate event subject/
+                                let topic = topic_info.topic_name.replace('/', ".").to_lowercase();
+                                let base_subject = format!("{}.{}", DEFAULT_MESSAGE_SUBJECT, &topic[1..]);
+                                let subject =
+                                    generate_subject(&self.config.name, &base_subject, SubjectSuffix::Timestamp);
+
+                                event!(Level::INFO, "Event processed: {}", subject);
+                            }
+                        }
+                        Err(_) => return Ok(()),
+                    }
+                }
             }
         }
-        Ok(())
     }
 }
 

@@ -1,19 +1,20 @@
 use super::config::{DEFAULT_AVRO_EXTENSION, DEFAULT_CSV_EXTENSION, DEFAULT_JSON_EXTENSION};
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use flowgen_core::buffer::{ContentType, FromReader};
 use flowgen_core::cache::Cache;
 use flowgen_core::event::{
     generate_subject, Event, EventBuilder, SubjectSuffix, DEFAULT_LOG_MESSAGE,
 };
 use flowgen_core::{client::Client, event::EventData};
+use futures::StreamExt;
 use object_store::GetResultPayload;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor};
 use std::sync::Arc;
 use tokio::sync::{
     broadcast::{Receiver, Sender},
     Mutex,
 };
-use tracing::{event, Level};
+use tracing::{event, info, warn, Level};
 
 /// Default subject prefix for logging messages.
 const DEFAULT_MESSAGE_SUBJECT: &str = "object_store.reader.in";
@@ -91,65 +92,77 @@ impl<T: Cache> EventHandler<T> {
             .extension()
             .ok_or_else(Error::NoFileExtension)?;
 
-        match result.payload {
-            GetResultPayload::File(file, _) => {
-                let content_type = match extension {
-                    DEFAULT_JSON_EXTENSION => ContentType::Json,
-                    DEFAULT_CSV_EXTENSION => {
-                        let batch_size = self.config.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
-                        let has_header = self.config.has_header.unwrap_or(DEFAULT_HAS_HEADER);
-
-                        ContentType::Csv {
-                            batch_size,
-                            has_header,
-                        }
-                    }
-                    DEFAULT_AVRO_EXTENSION => ContentType::Avro,
-                    _ => {
-                        event!(Level::WARN, "Unsupported file extension: {}", extension);
-                        return Ok(());
-                    }
-                };
-
-                let reader = BufReader::new(file);
-                let event_data_list = EventData::from_reader(reader, content_type.clone())?;
-
-                if let ContentType::Csv { .. } = content_type {
-                    if let Some(cache_options) = &self.config.cache_options {
-                        if let Some(insert_key) = &cache_options.insert_key {
-                            if let Some(EventData::ArrowRecordBatch(batch)) =
-                                event_data_list.first()
-                            {
-                                let schema_bytes = Bytes::from(batch.schema().to_string());
-                                self.cache
-                                    .put(insert_key.as_str(), schema_bytes)
-                                    .await
-                                    .map_err(|_| Error::Cache())?;
-                            }
-                        }
-                    }
-                }
-
-                for event_data in event_data_list {
-                    // Generate event subject.
-                    let subject = generate_subject(
-                        &self.config.name,
-                        DEFAULT_MESSAGE_SUBJECT,
-                        SubjectSuffix::Timestamp,
-                    );
-
-                    // Build and send event.
-                    let e = EventBuilder::new()
-                        .subject(subject)
-                        .data(event_data)
-                        .current_task_id(self.current_task_id)
-                        .build()?;
-
-                    event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
-                    self.tx.send(e)?;
+        // Determine content type from file extension.
+        let content_type = match extension {
+            DEFAULT_JSON_EXTENSION => ContentType::Json,
+            DEFAULT_CSV_EXTENSION => {
+                let batch_size = self.config.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
+                let has_header = self.config.has_header.unwrap_or(DEFAULT_HAS_HEADER);
+                ContentType::Csv {
+                    batch_size,
+                    has_header,
                 }
             }
-            GetResultPayload::Stream(_pin) => todo!(),
+            DEFAULT_AVRO_EXTENSION => ContentType::Avro,
+            _ => {
+                warn!("Unsupported file extension: {}", extension);
+                return Ok(());
+            }
+        };
+
+        // Parse payload into event data based on type.
+        let event_data_list = match result.payload {
+            GetResultPayload::File(file, _) => {
+                let reader = BufReader::new(file);
+                EventData::from_reader(reader, content_type.clone())?
+            }
+            GetResultPayload::Stream(mut stream) => {
+                // Collect stream into bytes.
+                let mut buffer = BytesMut::new();
+                while let Some(chunk) = stream.next().await {
+                    let chunk = chunk?;
+                    buffer.extend_from_slice(&chunk);
+                }
+                let bytes = buffer.freeze();
+
+                // Parse bytes using Cursor for Seek support.
+                let cursor = Cursor::new(bytes);
+                let reader = BufReader::new(cursor);
+                EventData::from_reader(reader, content_type.clone())?
+            }
+        };
+
+        // Cache schema for CSV if configured.
+        if let ContentType::Csv { .. } = content_type {
+            if let Some(cache_options) = &self.config.cache_options {
+                if let Some(insert_key) = &cache_options.insert_key {
+                    if let Some(EventData::ArrowRecordBatch(batch)) = event_data_list.first() {
+                        let schema_bytes = Bytes::from(batch.schema().to_string());
+                        self.cache
+                            .put(insert_key.as_str(), schema_bytes)
+                            .await
+                            .map_err(|_| Error::Cache())?;
+                    }
+                }
+            }
+        }
+
+        // Send events.
+        for event_data in event_data_list {
+            let subject = generate_subject(
+                &self.config.name,
+                DEFAULT_MESSAGE_SUBJECT,
+                SubjectSuffix::Timestamp,
+            );
+
+            let e = EventBuilder::new()
+                .subject(subject)
+                .data(event_data)
+                .current_task_id(self.current_task_id)
+                .build()?;
+
+            info!("{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
+            self.tx.send(e)?;
         }
         Ok(())
     }
@@ -181,7 +194,8 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Reader<T> {
             "{}.{}.{}",
             self.task_context.flow.name, DEFAULT_MESSAGE_SUBJECT, self.config.name
         );
-        self.task_context
+        let mut task_manager_rx = self
+            .task_context
             .task_manager
             .register(
                 task_id,
@@ -202,28 +216,47 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Reader<T> {
         let client = Arc::new(Mutex::new(client_builder.build()?.connect().await?));
 
         // Process incoming events, filtering by task ID.
-        while let Ok(event) = self.rx.recv().await {
-            if event.current_task_id == Some(self.current_task_id - 1) {
-                let client = Arc::clone(&client);
-                let config = Arc::clone(&self.config);
-                let cache = Arc::clone(&self.cache);
-                let tx = self.tx.clone();
-                let current_task_id = self.current_task_id;
-                let event_handler = EventHandler {
-                    client,
-                    config,
-                    tx,
-                    current_task_id,
-                    cache,
-                };
-                tokio::spawn(async move {
-                    if let Err(err) = event_handler.handle(event).await {
-                        event!(Level::ERROR, "{}", err);
+        loop {
+            tokio::select! {
+                biased;
+
+                // Check for leadership changes.
+                Some(status) = task_manager_rx.recv() => {
+                    if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
+                        info!("Lost leadership for object_store reader {}, exiting", self.config.name);
+                        return Ok(());
                     }
-                });
+                }
+
+                // Process events.
+                result = self.rx.recv() => {
+                    match result {
+                        Ok(event) => {
+                            if event.current_task_id == Some(self.current_task_id - 1) {
+                                let client = Arc::clone(&client);
+                                let config = Arc::clone(&self.config);
+                                let cache = Arc::clone(&self.cache);
+                                let tx = self.tx.clone();
+                                let current_task_id = self.current_task_id;
+                                let event_handler = EventHandler {
+                                    client,
+                                    config,
+                                    tx,
+                                    current_task_id,
+                                    cache,
+                                };
+                                tokio::spawn(async move {
+                                    if let Err(err) = event_handler.handle(event).await {
+                                        event!(Level::ERROR, "{}", err);
+                                    }
+                                });
+                            }
+                        }
+                        Err(_) => return Ok(()),
+                    }
+                }
             }
         }
-        Ok(())
     }
 }
 

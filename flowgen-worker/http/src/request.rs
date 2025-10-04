@@ -183,7 +183,8 @@ impl flowgen_core::task::runner::Runner for Processor {
             "{}.{}.{}",
             self.task_context.flow.name, DEFAULT_MESSAGE_SUBJECT, self.config.name
         );
-        self.task_context
+        let mut task_manager_rx = self
+            .task_context
             .task_manager
             .register(
                 task_id,
@@ -195,27 +196,46 @@ impl flowgen_core::task::runner::Runner for Processor {
 
         let client = Arc::new(client);
 
-        while let Ok(event) = self.rx.recv().await {
-            if event.current_task_id == Some(self.current_task_id - 1) {
-                let config = Arc::clone(&self.config);
-                let client = Arc::clone(&client);
-                let tx = self.tx.clone();
-                let current_task_id = self.current_task_id;
+        loop {
+            tokio::select! {
+                biased;
 
-                let event_handler = EventHandler {
-                    config,
-                    current_task_id,
-                    tx,
-                    client,
-                };
-                tokio::spawn(async move {
-                    if let Err(err) = event_handler.handle(event).await {
-                        event!(Level::ERROR, "{}", err);
+                // Check for leadership changes.
+                Some(status) = task_manager_rx.recv() => {
+                    if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
+                        event!(Level::INFO, "Lost leadership for HTTP request {}, exiting", self.config.name);
+                        return Ok(());
                     }
-                });
+                }
+
+                // Process events.
+                result = self.rx.recv() => {
+                    match result {
+                        Ok(event) => {
+                            if event.current_task_id == Some(self.current_task_id - 1) {
+                                let config = Arc::clone(&self.config);
+                                let client = Arc::clone(&client);
+                                let tx = self.tx.clone();
+                                let current_task_id = self.current_task_id;
+
+                                let event_handler = EventHandler {
+                                    config,
+                                    current_task_id,
+                                    tx,
+                                    client,
+                                };
+                                tokio::spawn(async move {
+                                    if let Err(err) = event_handler.handle(event).await {
+                                        event!(Level::ERROR, "{}", err);
+                                    }
+                                });
+                            }
+                        }
+                        Err(_) => return Ok(()),
+                    }
+                }
             }
         }
-        Ok(())
     }
 }
 
