@@ -10,7 +10,7 @@ use salesforce_pubsub::eventbus::v1::{FetchRequest, SchemaRequest, TopicRequest}
 use std::sync::Arc;
 use tokio::sync::{broadcast::Sender, Mutex};
 use tokio_stream::StreamExt;
-use tracing::{event, Level};
+use tracing::{debug, info, warn};
 
 const DEFAULT_MESSAGE_SUBJECT: &str = "salesforce.pubsub.in";
 const DEFAULT_PUBSUB_URL: &str = "https://api.pubsub.salesforce.com";
@@ -134,11 +134,7 @@ impl<T: Cache> EventHandler<T> {
                     fetch_request.replay_preset = 2;
                 }
                 Err(_) => {
-                    event!(
-                        Level::WARN,
-                        "No cache entry found for key: {:?}",
-                        &durable_consumer_opts.name
-                    );
+                    warn!("No cache entry found for key: {:?}", &durable_consumer_opts.name);
                 }
             }
         }
@@ -204,7 +200,7 @@ impl<T: Cache> EventHandler<T> {
                                 .build()
                                 .map_err(Error::Event)?;
 
-                            event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
+                            info!("{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
                             self.tx.send(e)?;
                         }
                     }
@@ -305,9 +301,7 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
         };
 
         // Spawn event handler task and wait for completion or leadership loss.
-        let mut handler_task = tokio::spawn(async move {
-            event_handler.handle().await
-        });
+        let mut handler_task = tokio::spawn(async move { event_handler.handle().await });
 
         // Wait for leadership changes or handler completion.
         loop {
@@ -317,7 +311,7 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
                 // Check for leadership changes.
                 Some(status) = task_manager_rx.recv() => {
                     if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
-                        event!(Level::INFO, "Lost leadership for Salesforce subscriber {}, exiting", self.config.name);
+                        debug!("Lost leadership for task: {}", self.config.name);
                         handler_task.abort();
                         return Ok(());
                     }
@@ -325,17 +319,7 @@ impl<T: Cache> flowgen_core::task::runner::Runner for Subscriber<T> {
 
                 // Wait for handler to complete.
                 result = &mut handler_task => {
-                    return match result {
-                        Ok(Ok(())) => Ok(()),
-                        Ok(Err(err)) => {
-                            event!(Level::ERROR, "Salesforce subscriber error: {}", err);
-                            Err(err)
-                        }
-                        Err(err) => {
-                            event!(Level::ERROR, "Salesforce subscriber task error: {}", err);
-                            Err(Error::TaskJoin(err))
-                        }
-                    };
+                    return result.map_err(Error::TaskJoin)?;
                 }
             }
         }

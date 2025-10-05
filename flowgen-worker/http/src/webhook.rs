@@ -13,7 +13,7 @@ use reqwest::{header::HeaderMap, StatusCode};
 use serde_json::{json, Map, Value};
 use std::{fs, sync::Arc};
 use tokio::sync::broadcast::Sender;
-use tracing::{event, Level};
+use tracing::{error, info};
 
 /// Default subject for webhook events.
 const DEFAULT_MESSAGE_SUBJECT: &str = "http.webhook.in";
@@ -64,7 +64,7 @@ impl IntoResponse for Error {
             Error::SerdeJson(_) | Error::Axum(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        event!(Level::ERROR, "webhook error: {}", self);
+        error!("webhook error: {}", self);
         status.into_response()
     }
 }
@@ -144,12 +144,7 @@ impl EventHandler {
 
         // Validate the authentication and return error if request is not authorized.
         if let Err(auth_error) = self.validate_authentication(&headers) {
-            event!(
-                Level::ERROR,
-                "Webhook authentication failed for {}: {}",
-                subject,
-                auth_error
-            );
+            error!("Webhook authentication failed for {}: {}", subject, auth_error);
             return Ok(StatusCode::UNAUTHORIZED);
         }
 
@@ -160,7 +155,7 @@ impl EventHandler {
             false => serde_json::from_slice(&body)?,
         };
 
-        let mut headers_map = Map::new();
+        let headers_map = Map::new();
         // Temporarly turn of headers.
         // for (key, value) in headers.iter() {
         //     headers_map.insert(
@@ -180,7 +175,7 @@ impl EventHandler {
             .current_task_id(self.current_task_id)
             .build()?;
 
-        event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
+        info!("{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
         self.tx.send(e)?;
         Ok(StatusCode::OK)
     }

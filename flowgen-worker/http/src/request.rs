@@ -16,7 +16,7 @@ use tokio::{
     fs,
     sync::broadcast::{Receiver, Sender},
 };
-use tracing::{event, Level};
+use tracing::{debug, error, info};
 
 /// Default subject for HTTP response events.
 const DEFAULT_MESSAGE_SUBJECT: &str = "http.response.out";
@@ -68,7 +68,7 @@ pub enum Error {
 }
 
 /// Event handler for processing HTTP requests.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct EventHandler {
     /// HTTP client instance.
     client: Arc<reqwest::Client>,
@@ -82,7 +82,7 @@ struct EventHandler {
 
 impl EventHandler {
     /// Processes an event by making an HTTP request.
-    async fn handle(self, event: Event) -> Result<(), Error> {
+    async fn handle(&self, event: Event) -> Result<(), Error> {
         let config = self.config.render(&event.data)?;
 
         let mut client = match config.method {
@@ -155,7 +155,7 @@ impl EventHandler {
             .build()?;
 
         self.tx.send(e)?;
-        event!(Level::INFO, "event processeds: {}", subject);
+        info!("event processeds: {}", subject);
         Ok(())
     }
 }
@@ -193,8 +193,14 @@ impl flowgen_core::task::runner::Runner for Processor {
             .await?;
 
         let client = reqwest::ClientBuilder::new().https_only(true).build()?;
-
         let client = Arc::new(client);
+
+        let event_handler = Arc::new(EventHandler {
+            config: Arc::clone(&self.config),
+            current_task_id: self.current_task_id,
+            tx: self.tx.clone(),
+            client,
+        });
 
         loop {
             tokio::select! {
@@ -203,7 +209,7 @@ impl flowgen_core::task::runner::Runner for Processor {
                 // Check for leadership changes.
                 Some(status) = task_manager_rx.recv() => {
                     if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
-                        event!(Level::INFO, "Lost leadership for HTTP request {}, exiting", self.config.name);
+                        debug!("Lost leadership for task: {}", self.config.name);
                         return Ok(());
                     }
                 }
@@ -213,20 +219,10 @@ impl flowgen_core::task::runner::Runner for Processor {
                     match result {
                         Ok(event) => {
                             if event.current_task_id == Some(self.current_task_id - 1) {
-                                let config = Arc::clone(&self.config);
-                                let client = Arc::clone(&client);
-                                let tx = self.tx.clone();
-                                let current_task_id = self.current_task_id;
-
-                                let event_handler = EventHandler {
-                                    config,
-                                    current_task_id,
-                                    tx,
-                                    client,
-                                };
+                                let handler = Arc::clone(&event_handler);
                                 tokio::spawn(async move {
-                                    if let Err(err) = event_handler.handle(event).await {
-                                        event!(Level::ERROR, "{}", err);
+                                    if let Err(err) = handler.handle(event).await {
+                                        error!("{}", err);
                                     }
                                 });
                             }

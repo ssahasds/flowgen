@@ -12,7 +12,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender},
     Mutex,
 };
-use tracing::{event, Level};
+use tracing::{debug, error, info};
 
 /// Default subject prefix for converted events.
 const DEFAULT_MESSAGE_SUBJECT: &str = "convert";
@@ -86,7 +86,7 @@ struct AvroSerializerOptions {
 
 impl EventHandler {
     /// Processes an event and converts to selected target format.
-    async fn handle(self, event: Event) -> Result<(), Error> {
+    async fn handle(&self, event: Event) -> Result<(), Error> {
         let data = match event.data {
             EventData::Json(mut data) => match &self.serializer {
                 Some(serializer_opts) => {
@@ -121,7 +121,7 @@ impl EventHandler {
             .current_task_id(self.current_task_id)
             .build()?;
 
-        event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
+        info!("{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
         self.tx.send(e)?;
         Ok(())
     }
@@ -184,6 +184,13 @@ impl super::super::runner::Runner for Processor {
             }
         };
 
+        let event_handler = Arc::new(EventHandler {
+            config: Arc::clone(&self.config),
+            tx: self.tx.clone(),
+            current_task_id: self.current_task_id,
+            serializer,
+        });
+
         loop {
             tokio::select! {
                 biased;
@@ -191,7 +198,7 @@ impl super::super::runner::Runner for Processor {
                 // Check for leadership changes.
                 Some(status) = task_manager_rx.recv() => {
                     if status == crate::task::manager::LeaderElectionResult::NotLeader {
-                        event!(Level::INFO, "Lost leadership for convert processor {}, exiting", self.config.name);
+                        debug!("Lost leadership for task: {}", self.config.name);
                         return Ok(());
                     }
                 }
@@ -201,21 +208,10 @@ impl super::super::runner::Runner for Processor {
                     match result {
                         Ok(event) => {
                             if event.current_task_id == Some(self.current_task_id - 1) {
-                                let config = Arc::clone(&self.config);
-                                let tx = self.tx.clone();
-                                let current_task_id = self.current_task_id;
-                                let serializer = serializer.clone();
-
-                                let event_handler = EventHandler {
-                                    config,
-                                    current_task_id,
-                                    tx,
-                                    serializer,
-                                };
-
+                                let handler = Arc::clone(&event_handler);
                                 tokio::spawn(async move {
-                                    if let Err(err) = event_handler.handle(event).await {
-                                        event!(Level::ERROR, "{}", err);
+                                    if let Err(err) = handler.handle(event).await {
+                                        error!("{}", err);
                                     }
                                 });
                             }

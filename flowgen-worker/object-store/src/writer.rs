@@ -7,7 +7,7 @@ use flowgen_core::{client::Client, event::generate_subject};
 use object_store::PutPayload;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::{broadcast::Receiver, Mutex};
-use tracing::{event, Level};
+use tracing::{debug, error, info};
 
 /// Default subject prefix for logging messages.
 const DEFAULT_MESSAGE_SUBJECT: &str = "object_store.writer.out";
@@ -52,7 +52,7 @@ struct EventHandler {
 
 impl EventHandler {
     /// Processes an event and writes it to the configured object store.
-    async fn handle(self, event: Event) -> Result<(), Error> {
+    async fn handle(&self, event: Event) -> Result<(), Error> {
         let mut client_guard = self.client.lock().await;
         let context = client_guard
             .context
@@ -115,7 +115,7 @@ impl EventHandler {
             .subject(subject)
             .data(EventData::Json(data))
             .build()?;
-        event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
+        info!("{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
         Ok(())
     }
 
@@ -173,6 +173,11 @@ impl flowgen_core::task::runner::Runner for Writer {
 
         let client = Arc::new(Mutex::new(client_builder.build()?.connect().await?));
 
+        let event_handler = Arc::new(EventHandler {
+            client,
+            config: Arc::clone(&self.config),
+        });
+
         // Process incoming events, filtering by task ID.
         loop {
             tokio::select! {
@@ -181,7 +186,7 @@ impl flowgen_core::task::runner::Runner for Writer {
                 // Check for leadership changes.
                 Some(status) = task_manager_rx.recv() => {
                     if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
-                        event!(Level::INFO, "Lost leadership for object_store writer {}, exiting", self.config.name);
+                        debug!("Lost leadership for task: {}", self.config.name);
                         return Ok(());
                     }
                 }
@@ -191,12 +196,10 @@ impl flowgen_core::task::runner::Runner for Writer {
                     match result {
                         Ok(event) => {
                             if event.current_task_id == Some(self.current_task_id - 1) {
-                                let client = Arc::clone(&client);
-                                let config = Arc::clone(&self.config);
-                                let event_handler = EventHandler { client, config };
+                                let handler = Arc::clone(&event_handler);
                                 tokio::spawn(async move {
-                                    if let Err(err) = event_handler.handle(event).await {
-                                        event!(Level::ERROR, "{}", err);
+                                    if let Err(err) = handler.handle(event).await {
+                                        error!("{}", err);
                                     }
                                 });
                             }

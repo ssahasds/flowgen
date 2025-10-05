@@ -4,7 +4,7 @@ use flowgen_core::client::Client;
 use flowgen_core::event::{Event, DEFAULT_LOG_MESSAGE};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast::Receiver, Mutex};
-use tracing::{event, Level};
+use tracing::{debug, error, info};
 
 /// Default subject prefix for NATS publisher.
 const DEFAULT_MESSAGE_SUBJECT: &str = "nats.jetstream.publisher";
@@ -49,10 +49,10 @@ struct EventHandler {
 }
 
 impl EventHandler {
-    async fn handle(self, event: Event) -> Result<(), Error> {
+    async fn handle(&self, event: Event) -> Result<(), Error> {
         let e = event.to_publish()?;
 
-        event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, event.subject);
+        info!("{}: {}", DEFAULT_LOG_MESSAGE, event.subject);
 
         self.jetstream
             .lock()
@@ -136,6 +136,10 @@ impl flowgen_core::task::runner::Runner for Publisher {
 
             let jetstream = Arc::new(Mutex::new(jetstream));
 
+            let event_handler = Arc::new(EventHandler {
+                jetstream,
+            });
+
             loop {
                 tokio::select! {
                     biased;
@@ -143,7 +147,7 @@ impl flowgen_core::task::runner::Runner for Publisher {
                     // Check for leadership changes.
                     Some(status) = task_manager_rx.recv() => {
                         if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
-                            event!(Level::INFO, "Lost leadership for NATS publisher {}, exiting", self.config.name);
+                            debug!("Lost leadership for task: {}", self.config.name);
                             return Ok(());
                         }
                     }
@@ -153,12 +157,10 @@ impl flowgen_core::task::runner::Runner for Publisher {
                         match result {
                             Ok(event) => {
                                 if event.current_task_id == Some(self.current_task_id - 1) {
-                                    let jetstream = Arc::clone(&jetstream);
-                                    let event_handler = EventHandler { jetstream };
-                                    // Spawn a new asynchronous task to handle event processing.
+                                    let handler = Arc::clone(&event_handler);
                                     tokio::spawn(async move {
-                                        if let Err(err) = event_handler.handle(event).await {
-                                            event!(Level::ERROR, "{}", err);
+                                        if let Err(err) = handler.handle(event).await {
+                                            error!("{}", err);
                                         }
                                     });
                                 }

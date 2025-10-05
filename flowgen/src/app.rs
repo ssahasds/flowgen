@@ -3,7 +3,7 @@ use config::Config;
 use flowgen_core::client::Client;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{event, warn, Level};
+use tracing::{error, info, warn};
 
 /// Errors that can occur during application execution.
 #[derive(thiserror::Error, Debug)]
@@ -64,21 +64,13 @@ impl flowgen_core::task::runner::Runner for App {
         let flow_configs: Vec<FlowConfig> = glob::glob(glob_pattern)?
             .map(|path| -> Result<FlowConfig, Error> {
                 let path = path?;
-                event!(Level::INFO, "Loading flow: {:?}", path);
+                info!("Loading flow: {:?}", path);
                 let contents = std::fs::read_to_string(&path).map_err(|e| Error::IO {
                     path: path.clone(),
                     source: e,
                 })?;
-
-                // Detect file format based on extension.
-                let file_format = match path.extension().and_then(|e| e.to_str()) {
-                    Some("yaml") | Some("yml") => config::FileFormat::Yaml,
-                    Some("json") => config::FileFormat::Json,
-                    _ => config::FileFormat::Json,
-                };
-
                 let config = Config::builder()
-                    .add_source(config::File::from_str(&contents, file_format))
+                    .add_source(config::File::from_str(&contents, config::FileFormat::Json))
                     .build()?;
                 Ok(config.try_deserialize::<FlowConfig>()?)
             })
@@ -141,7 +133,7 @@ impl flowgen_core::task::runner::Runner for App {
             let flow = match flow_builder.build() {
                 Ok(flow) => flow,
                 Err(e) => {
-                    event!(Level::ERROR, "Flow build failed: {}", e);
+                    error!("Flow build failed: {}", e);
                     continue;
                 }
             };
@@ -149,7 +141,7 @@ impl flowgen_core::task::runner::Runner for App {
             let flow = match flow.run().await {
                 Ok(flow) => flow,
                 Err(e) => {
-                    event!(Level::ERROR, "{}", e);
+                    error!("{}", e);
                     continue;
                 }
             };
@@ -164,7 +156,7 @@ impl flowgen_core::task::runner::Runner for App {
         let configured_port = app_config.http.as_ref().and_then(|http| http.port);
         let server_handle = tokio::spawn(async move {
             if let Err(e) = http_server.start_server(configured_port).await {
-                event!(Level::ERROR, "Failed to start HTTP Server: {}", e);
+                error!("Failed to start HTTP Server: {}", e);
             }
         });
 
@@ -193,10 +185,10 @@ fn log_task_error(result: Result<Result<(), super::flow::Error>, tokio::task::Jo
     match result {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
-            event!(Level::ERROR, "{}", error);
+            error!("{}", error);
         }
         Err(error) => {
-            event!(Level::ERROR, "{}", error);
+            error!("{}", error);
         }
     }
 }

@@ -92,7 +92,7 @@ impl<T: crate::cache::Cache> crate::task::runner::Runner for Subscriber<T> {
                 // Check for leadership election results.
                 Some(status) = task_manager_rx.recv() => {
                     if status == crate::task::manager::LeaderElectionResult::NotLeader {
-                        debug!("Lost leadership for generate task {}, exiting", self.config.name);
+                        debug!("Lost leadership for task: {}", self.config.name);
                         return Ok(());
                     }
                 }

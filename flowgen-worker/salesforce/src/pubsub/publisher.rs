@@ -10,7 +10,7 @@ use serde_avro_fast::{ser, Schema};
 use serde_json::{Map, Value};
 use std::{path::Path, sync::Arc};
 use tokio::sync::{broadcast::Receiver, Mutex};
-use tracing::{event, Level};
+use tracing::{debug, info};
 
 const DEFAULT_MESSAGE_SUBJECT: &str = "salesforce.pubsub.out";
 const DEFAULT_PUBSUB_URI: &str = "https://api.pubsub.salesforce.com";
@@ -155,7 +155,7 @@ impl flowgen_core::task::runner::Runner for Publisher {
                 // Check for leadership changes.
                 Some(status) = task_manager_rx.recv() => {
                     if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
-                        event!(Level::INFO, "Lost leadership for Salesforce publisher {}, exiting", self.config.name);
+                        debug!("Lost leadership for task: {}", self.config.name);
                         return Ok(());
                     }
                 }
@@ -204,7 +204,7 @@ impl flowgen_core::task::runner::Runner for Publisher {
                                 let subject =
                                     generate_subject(&self.config.name, &base_subject, SubjectSuffix::Timestamp);
 
-                                event!(Level::INFO, "Event processed: {}", subject);
+                                info!("Event processed: {}", subject);
                             }
                         }
                         Err(_) => return Ok(()),

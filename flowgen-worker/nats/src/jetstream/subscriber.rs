@@ -7,7 +7,7 @@ use flowgen_core::{
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::broadcast::Sender, time};
 use tokio_stream::StreamExt;
-use tracing::{event, Level};
+use tracing::{debug, info};
 
 /// Default subject prefix for NATS subscriber.
 const DEFAULT_MESSAGE_SUBJECT: &str = "nats.jetstream.subscriber";
@@ -136,7 +136,7 @@ impl flowgen_core::task::runner::Runner for Subscriber {
                     // Check for leadership changes.
                     Some(status) = task_manager_rx.recv() => {
                         if status == flowgen_core::task::manager::LeaderElectionResult::NotLeader {
-                            event!(Level::INFO, "Lost leadership for NATS subscriber {}, exiting", self.config.name);
+                            debug!("Lost leadership for task: {}", self.config.name);
                             return Ok(());
                         }
                     }
@@ -147,7 +147,7 @@ impl flowgen_core::task::runner::Runner for Subscriber {
                             time::sleep(Duration::from_secs(delay_secs)).await
                         }
 
-                        let mut stream = consumer.messages().await.ok()?;
+                        let stream = consumer.messages().await.ok()?;
                         let mut batch = stream.take(self.config.batch_size);
 
                         while let Some(message) = batch.next().await {
@@ -156,7 +156,7 @@ impl flowgen_core::task::runner::Runner for Subscriber {
                                 message.ack().await.ok()?;
                                 e.current_task_id = Some(self.current_task_id);
 
-                                event!(Level::INFO, "{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
+                                info!("{}: {}", DEFAULT_LOG_MESSAGE, e.subject);
                                 self.tx.send(e).ok()?;
                             }
                         }
