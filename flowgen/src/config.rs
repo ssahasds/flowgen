@@ -53,6 +53,10 @@ pub enum Task {
     salesforce_pubsub_subscriber(flowgen_salesforce::pubsub::config::Subscriber),
     /// Salesforce Pub/Sub publisher task.
     salesforce_pubsub_publisher(flowgen_salesforce::pubsub::config::Publisher),
+    /// Salesforce Bulk API Job creator task.
+    salesforce_bulkapi_job_creator(flowgen_salesforce::bulkapi::config::JobCreator),
+    /// Salesforce Bulk API Job retriever task.
+    salesforce_bulkapi_job_retriever(flowgen_salesforce::bulkapi::config::JobRetriever),
 }
 
 /// Main application configuration.

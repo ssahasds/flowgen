@@ -16,7 +16,7 @@ const DEFAULT_MESSAGE_SUBJECT: &'static str = "bulkapicreate";
 const DEFAULT_URI_PATH: &'static str = "/services/data/v61.0/jobs/query";
 
 /// Comprehensive error types for Salesforce bulk job creation operations.
-/// 
+///
 /// This enum encapsulates all possible error conditions that can occur during
 /// the job creation process, from authentication failures to API communication issues.
 #[derive(thiserror::Error, Debug)]
@@ -24,60 +24,60 @@ pub enum Error {
     /// Error occurred while sending events through the broadcast channel
     #[error(transparent)]
     SendMessage(#[from] tokio::sync::broadcast::error::SendError<Event>),
-    
+
     /// Required configuration attribute is missing
-    /// 
+    ///
     /// This error is thrown when mandatory fields like config, sender, or receiver
     /// are not provided during the builder pattern construction.
     #[error("missing required attribute: {}", _0)]
     MissingRequiredAttribute(String),
-    
+
     /// No data available in expected array format
-    /// 
+    ///
     /// Indicates that an operation expected array data but received empty or null data.
     #[error("no array data available")]
     EmptyArray(),
-    
+
     /// HTTP request/response error from the reqwest library
-    /// 
+    ///
     /// Wraps underlying network, HTTP protocol, or response parsing errors.
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
-    
+
     /// Salesforce authentication or client initialization error
-    /// 
+    ///
     /// Occurs when credential loading, OAuth flow, or client setup fails.
     #[error(transparent)]
     SalesforceAuth(#[from] crate::client::Error),
-    
+
     /// Event creation or processing error from flowgen_core
-    /// 
+    ///
     /// Wraps errors that occur during event building or data serialization.
     #[error(transparent)]
     Event(#[from] flowgen_core::event::Error),
-    
+
     /// Missing or invalid Salesforce access token
-    /// 
+    ///
     /// Indicates that the OAuth authentication process didn't produce a valid token.
     #[error("missing salesforce access token")]
     NoSalesforceAuthToken(),
 }
 
 /// Internal credentials structure for storing authentication information.
-/// 
+///
 /// Currently supports bearer token authentication, with potential for expansion
 /// to other authentication methods in the future.
 #[derive(Deserialize, Serialize, PartialEq, Clone, Debug, Default)]
 struct Credentials {
     /// Optional bearer authentication token
-    /// 
+    ///
     /// When present, this token will be used for API authentication.
     /// None indicates that other authentication methods should be used.
     bearer_auth: Option<String>,
 }
 
 /// Main processor for creating Salesforce bulk API jobs.
-/// 
+///
 /// This struct coordinates the entire job creation workflow, from receiving
 /// trigger events to authenticating with Salesforce and submitting job requests.
 /// It implements the flowgen_core Runner trait for integration with the task system.
@@ -93,7 +93,7 @@ pub struct JobCreator {
 }
 
 /// Internal event handler responsible for processing individual job creation requests.
-/// 
+///
 /// This struct encapsulates the logic for authenticating with Salesforce,
 /// constructing the appropriate API payload, and making the HTTP request to create a bulk job.
 struct EventHandler {
@@ -109,21 +109,21 @@ struct EventHandler {
 
 impl EventHandler {
     /// Processes a job creation request and handles the complete workflow.
-    /// 
+    ///
     /// This method orchestrates the entire job creation process:
     /// 1. Loads and validates Salesforce credentials
     /// 2. Authenticates with Salesforce to obtain access token
     /// 3. Constructs the appropriate API payload based on operation type
     /// 4. Makes the HTTP request to create the bulk job
     /// 5. Processes the response and emits it as an event
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `Ok(())` if the job was successfully created and the response was emitted,
     /// or an `Error` if any step in the process failed.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// This method can return various errors including:
     /// - `SalesforceAuth` errors for credential or authentication issues
     /// - `NoSalesforceAuthToken` if authentication didn't produce a valid token
@@ -210,27 +210,27 @@ impl EventHandler {
 
 impl flowgen_core::task::runner::Runner for JobCreator {
     type Error = Error;
-    
+
     /// Main execution loop for the job creator processor.
-    /// 
+    ///
     /// This method implements the flowgen_core Runner trait and provides the
     /// main execution logic for the processor. It:
     /// 1. Sets up an HTTPS-only HTTP client for security
     /// 2. Continuously listens for incoming events
     /// 3. Processes events that match the expected task ID
     /// 4. Spawns asynchronous handlers for each job creation request
-    /// 
+    ///
     /// The method uses task ID filtering to ensure that only events intended
     /// for this specific processor instance are handled, enabling proper
     /// pipeline orchestration in multi-step workflows.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `Ok(())` if the processor shuts down cleanly, or an `Error` if
     /// critical initialization or processing failures occur.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `Reqwest` error if the HTTP client cannot be initialized.
     /// Individual event processing errors are logged but don't terminate the processor.
     async fn run(mut self) -> Result<(), Error> {
@@ -255,7 +255,7 @@ impl flowgen_core::task::runner::Runner for JobCreator {
                     tx,
                     client,
                 };
-                
+
                 // Process the event asynchronously to avoid blocking the main loop
                 tokio::spawn(async move {
                     if let Err(err) = event_handler.handle().await {
@@ -269,7 +269,7 @@ impl flowgen_core::task::runner::Runner for JobCreator {
 }
 
 /// Builder pattern implementation for constructing JobCreator instances.
-/// 
+///
 /// This builder ensures that all required components are provided and properly
 /// configured before creating a JobCreator instance. It follows the standard
 /// Rust builder pattern with method chaining for ergonomic configuration.
@@ -287,7 +287,7 @@ pub struct ProcessorBuilder {
 
 impl ProcessorBuilder {
     /// Creates a new ProcessorBuilder with default values.
-    /// 
+    ///
     /// All optional fields are initialized to None, and current_task_id is set to 0.
     pub fn new() -> ProcessorBuilder {
         ProcessorBuilder {
@@ -296,9 +296,9 @@ impl ProcessorBuilder {
     }
 
     /// Sets the job configuration.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `config` - Shared configuration containing job parameters, credentials, and operation details
     pub fn config(mut self, config: Arc<super::config::JobCreator>) -> Self {
         self.config = Some(config);
@@ -306,9 +306,9 @@ impl ProcessorBuilder {
     }
 
     /// Sets the event receiver channel.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `receiver` - Broadcast receiver for incoming trigger events
     pub fn receiver(mut self, receiver: Receiver<Event>) -> Self {
         self.rx = Some(receiver);
@@ -316,9 +316,9 @@ impl ProcessorBuilder {
     }
 
     /// Sets the event sender channel.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `sender` - Broadcast sender for emitting processed events
     pub fn sender(mut self, sender: Sender<Event>) -> Self {
         self.tx = Some(sender);
@@ -326,9 +326,9 @@ impl ProcessorBuilder {
     }
 
     /// Sets the task identifier for event correlation.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `current_task_id` - Unique identifier for tracking this processor's events
     pub fn current_task_id(mut self, current_task_id: usize) -> Self {
         self.current_task_id = current_task_id;
@@ -336,14 +336,14 @@ impl ProcessorBuilder {
     }
 
     /// Builds the JobCreator instance after validating required fields.
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `Ok(JobCreator)` if all required fields are provided, or an `Error`
     /// indicating which required field is missing.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns `MissingRequiredAttribute` error if any of the required fields
     /// (config, receiver, sender) are not provided.
     pub async fn build(self) -> Result<JobCreator, Error> {
@@ -367,7 +367,6 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use tokio::sync::broadcast;
-
 
     // Helper function to create a test configuration
     fn create_test_config() -> Arc<crate::bulkapi::config::JobCreator> {
@@ -453,7 +452,7 @@ mod tests {
     async fn test_processor_builder_config() {
         let config = create_test_config();
         let builder = ProcessorBuilder::new().config(Arc::clone(&config));
-        
+
         assert!(builder.config.is_some());
         assert_eq!(builder.config.unwrap().label, config.label);
     }
@@ -462,11 +461,9 @@ mod tests {
     async fn test_processor_builder_channels() {
         let (tx, rx) = broadcast::channel(10);
         let _tx_clone = tx.clone();
-        
-        let builder = ProcessorBuilder::new()
-            .sender(tx)
-            .receiver(rx);
-        
+
+        let builder = ProcessorBuilder::new().sender(tx).receiver(rx);
+
         assert!(builder.tx.is_some());
         assert!(builder.rx.is_some());
     }
@@ -481,13 +478,13 @@ mod tests {
     async fn test_processor_builder_build_missing_config() {
         let (_tx, rx) = broadcast::channel(10);
         let (tx, _rx) = broadcast::channel(10);
-        
+
         let result = ProcessorBuilder::new()
             .sender(tx)
             .receiver(rx)
             .build()
             .await;
-        
+
         assert!(result.is_err());
         match result.err().unwrap() {
             Error::MissingRequiredAttribute(attr) => assert_eq!(attr, "config"),
@@ -499,13 +496,13 @@ mod tests {
     async fn test_processor_builder_build_missing_sender() {
         let config = create_test_config();
         let (_tx, rx) = broadcast::channel(10);
-        
+
         let result = ProcessorBuilder::new()
             .config(config)
             .receiver(rx)
             .build()
             .await;
-        
+
         assert!(result.is_err());
         match result.err().unwrap() {
             Error::MissingRequiredAttribute(attr) => assert_eq!(attr, "sender"),
@@ -517,13 +514,13 @@ mod tests {
     async fn test_processor_builder_build_missing_receiver() {
         let config = create_test_config();
         let (tx, _rx) = broadcast::channel(10);
-        
+
         let result = ProcessorBuilder::new()
             .config(config)
             .sender(tx)
             .build()
             .await;
-        
+
         assert!(result.is_err());
         match result.err().unwrap() {
             Error::MissingRequiredAttribute(attr) => assert_eq!(attr, "receiver"),
@@ -535,7 +532,7 @@ mod tests {
     async fn test_processor_builder_build_success() {
         let config = create_test_config();
         let (tx, rx) = broadcast::channel(10);
-        
+
         let result = ProcessorBuilder::new()
             .config(config)
             .sender(tx)
@@ -543,7 +540,7 @@ mod tests {
             .current_task_id(5)
             .build()
             .await;
-        
+
         assert!(result.is_ok());
         let processor = result.unwrap();
         assert_eq!(processor.current_task_id, 5);
@@ -560,14 +557,14 @@ mod tests {
         let config = create_test_config();
         let client = Arc::new(reqwest::Client::new());
         let (tx, _rx) = broadcast::channel(10);
-        
+
         let handler = EventHandler {
             client,
             config,
             tx,
             current_task_id: 1,
         };
-        
+
         assert_eq!(handler.current_task_id, 1);
     }
 
@@ -575,14 +572,14 @@ mod tests {
     async fn test_builder_method_chaining() {
         let config = create_test_config();
         let (tx, rx) = broadcast::channel(10);
-        
+
         // Test that all methods return Self for chaining
         let builder = ProcessorBuilder::new()
             .config(config)
             .sender(tx)
             .receiver(rx)
             .current_task_id(10);
-        
+
         let result = builder.build().await;
         assert!(result.is_ok());
     }
@@ -607,7 +604,7 @@ mod tests {
         let creds3 = Credentials {
             bearer_auth: Some("token2".to_string()),
         };
-        
+
         assert_eq!(creds1, creds2);
         assert_ne!(creds1, creds3);
     }
@@ -616,14 +613,14 @@ mod tests {
     async fn test_processor_builder_fluent_interface() {
         let config = create_test_config();
         let (tx, rx) = broadcast::channel(10);
-        
+
         // Test fluent interface returns the builder
         let builder = ProcessorBuilder::new();
         let builder = builder.config(config);
         let builder = builder.sender(tx);
         let builder = builder.receiver(rx);
         let builder = builder.current_task_id(15);
-        
+
         let processor = builder.build().await.unwrap();
         assert_eq!(processor.current_task_id, 15);
     }
@@ -632,11 +629,11 @@ mod tests {
     fn test_error_chain() {
         // Test error chaining and transparency
         let _inner_error = std::io::Error::new(std::io::ErrorKind::NotFound, "File not found");
-        
+
         // Create a chain of errors to test error propagation
         let (tx, _rx) = broadcast::channel::<Event>(1);
         drop(tx); // Close the sender to cause a send error
-        
+
         // The error types should properly chain and display their sources
     }
 }

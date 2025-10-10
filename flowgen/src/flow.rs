@@ -59,6 +59,22 @@ pub enum Error {
     /// Missing required configuration attribute.
     #[error("Missing required attribute: {}", _0)]
     MissingRequiredAttribute(String),
+    /// Error in Salesforce Bulk API Job Creator task.
+    #[error("flow: {flow}, task_id: {task_id}, source: {source}")]
+    BulkapiJobCreatorError {
+        #[source]
+        source: flowgen_salesforce::bulkapi::job_creator::Error,
+        flow: String,
+        task_id: usize,
+    },
+    /// Error in Salesforce Bulk API Job Retriever task.
+    #[error("flow: {flow}, task_id: {task_id}, source: {source}")]
+    BulkapiJobRetrieverError {
+        #[source]
+        source: flowgen_salesforce::bulkapi::job_retriever::Error,
+        flow: String,
+        task_id: usize,
+    },
 }
 
 /// A flow execution context managing tasks and resources.
@@ -305,6 +321,69 @@ impl Flow<'_> {
                     );
                     task_list.push(task);
                 }
+
+                Task::salesforce_bulkapi_job_creator(config) => {
+                    let config = Arc::new(config.to_owned());
+                    let rx = tx.subscribe();
+                    let tx = tx.clone();
+                    let flow_config = Arc::clone(&self.config);
+                    let task: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                        flowgen_salesforce::bulkapi::job_creator::ProcessorBuilder::new()
+                            .config(config)
+                            .receiver(rx)
+                            .sender(tx)
+                            .current_task_id(i)
+                            .build()
+                            .await
+                            .map_err(|e| Error::BulkapiJobCreatorError {
+                                source: e,
+                                flow: flow_config.flow.name.to_owned(),
+                                task_id: i,
+                            })?
+                            .run()
+                            .await
+                            .map_err(|e| Error::BulkapiJobCreatorError {
+                                source: e,
+                                flow: flow_config.flow.name.to_owned(),
+                                task_id: i,
+                            })?;
+
+                        Ok(())
+                    });
+                    task_list.push(task);
+                }
+
+                Task::salesforce_bulkapi_job_retriever(config) => {
+                    let config = Arc::new(config.to_owned());
+                    let rx = tx.subscribe();
+                    let tx = tx.clone();
+                    let flow_config = Arc::clone(&self.config);
+                    let task: JoinHandle<Result<(), Error>> = tokio::spawn(async move {
+                        flowgen_salesforce::bulkapi::job_retriever::ProcessorBuilder::new()
+                            .config(config)
+                            .receiver(rx)
+                            .sender(tx)
+                            .current_task_id(i)
+                            .build()
+                            .await
+                            .map_err(|e| Error::BulkapiJobRetrieverError {
+                                source: e,
+                                flow: flow_config.flow.name.to_owned(),
+                                task_id: i,
+                            })?
+                            .run()
+                            .await
+                            .map_err(|e| Error::BulkapiJobRetrieverError {
+                                source: e,
+                                flow: flow_config.flow.name.to_owned(),
+                                task_id: i,
+                            })?;
+
+                        Ok(())
+                    });
+                    task_list.push(task);
+                }
+
                 Task::object_store_reader(config) => {
                     let config = Arc::new(config.to_owned());
                     let rx = tx.subscribe();
