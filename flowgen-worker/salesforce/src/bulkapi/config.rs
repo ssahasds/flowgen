@@ -268,9 +268,12 @@ mod tests {
             label: Some("test_retriever".to_string()),
             credentials_path: PathBuf::from("/path/to/creds.json"),
         };
-        
+
         assert_eq!(retriever.label, Some("test_retriever".to_string()));
-        assert_eq!(retriever.credentials_path, PathBuf::from("/path/to/creds.json"));
+        assert_eq!(
+            retriever.credentials_path,
+            PathBuf::from("/path/to/creds.json")
+        );
     }
 
     #[test]
@@ -279,10 +282,10 @@ mod tests {
             label: Some("test_label".to_string()),
             credentials_path: PathBuf::from("/test/path.json"),
         };
-        
+
         let json = serde_json::to_string(&retriever).unwrap();
         let deserialized: JobRetriever = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(retriever, deserialized);
     }
 
@@ -317,7 +320,7 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         };
-        
+
         assert_eq!(creator.operation, Operation::Query);
         assert!(creator.query.is_some());
         assert!(creator.object.is_none());
@@ -338,7 +341,7 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         };
-        
+
         assert_eq!(creator.operation, Operation::Insert);
         assert!(creator.object.is_some());
         assert!(creator.query.is_none());
@@ -359,9 +362,12 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: Some("External_ID__c".to_string()),
         };
-        
+
         assert_eq!(creator.operation, Operation::Upsert);
-        assert_eq!(creator.external_id_field_name, Some("External_ID__c".to_string()));
+        assert_eq!(
+            creator.external_id_field_name,
+            Some("External_ID__c".to_string())
+        );
     }
 
     #[test]
@@ -442,10 +448,7 @@ mod tests {
 
     #[test]
     fn test_content_type_serialization() {
-        assert_eq!(
-            serde_json::to_string(&ContentType::Csv).unwrap(),
-            "\"CSV\""
-        );
+        assert_eq!(serde_json::to_string(&ContentType::Csv).unwrap(), "\"CSV\"");
     }
 
     #[test]
@@ -526,10 +529,7 @@ mod tests {
 
     #[test]
     fn test_line_ending_serialization() {
-        assert_eq!(
-            serde_json::to_string(&LineEnding::Lf).unwrap(),
-            "\"LF\""
-        );
+        assert_eq!(serde_json::to_string(&LineEnding::Lf).unwrap(), "\"LF\"");
         assert_eq!(
             serde_json::to_string(&LineEnding::Crlf).unwrap(),
             "\"CRLF\""
@@ -563,10 +563,10 @@ mod tests {
             assignment_rule_id: Some("rule123".to_string()),
             external_id_field_name: None,
         };
-        
+
         let json = serde_json::to_string(&creator).unwrap();
         let deserialized: JobCreator = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(creator, deserialized);
     }
 
@@ -585,7 +585,7 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         };
-        
+
         let creator2 = creator1.clone();
         assert_eq!(creator1, creator2);
     }
@@ -596,7 +596,7 @@ mod tests {
             label: Some("clone_test".to_string()),
             credentials_path: PathBuf::from("/test.json"),
         };
-        
+
         let retriever2 = retriever1.clone();
         assert_eq!(retriever1, retriever2);
     }
@@ -609,7 +609,7 @@ mod tests {
             "operation": "insert",
             "object": "Account"
         }"#;
-        
+
         let creator: JobCreator = serde_json::from_str(json).unwrap();
         assert_eq!(creator.name, "minimal_job");
         assert_eq!(creator.operation, Operation::Insert);
@@ -633,7 +633,7 @@ mod tests {
             assignment_rule_id: Some("01Q5g000000abcdEAA".to_string()),
             external_id_field_name: None,
         };
-        
+
         assert_eq!(
             creator.assignment_rule_id,
             Some("01Q5g000000abcdEAA".to_string())
@@ -650,14 +650,17 @@ mod tests {
             ColumnDelimiter::Caret,
             ColumnDelimiter::Backquote,
         ];
-        
+
         // Each delimiter should serialize to a different string
         let serialized: Vec<String> = delimiters
             .iter()
             .map(|d| serde_json::to_string(d).unwrap())
             .collect();
-        
-        let unique_count = serialized.iter().collect::<std::collections::HashSet<_>>().len();
+
+        let unique_count = serialized
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
         assert_eq!(unique_count, delimiters.len());
     }
 
@@ -666,7 +669,7 @@ mod tests {
         let creator = JobCreator::default();
         let debug_str = format!("{:?}", creator);
         assert!(debug_str.contains("JobCreator"));
-        
+
         let retriever = JobRetriever::default();
         let debug_str = format!("{:?}", retriever);
         assert!(debug_str.contains("JobRetriever"));

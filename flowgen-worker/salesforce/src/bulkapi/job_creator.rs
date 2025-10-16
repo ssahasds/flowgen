@@ -197,7 +197,9 @@ impl EventHandler {
             .subject(subject.clone())
             .current_task_id(self.current_task_id)
             .build()?;
-        self.tx.send(e).map_err(|e| Error::SendMessage { source: e })?;
+        self.tx
+            .send(e)
+            .map_err(|e| Error::SendMessage { source: e })?;
         event!(Level::INFO, "Event processed: {}", subject);
 
         Ok(())
@@ -233,7 +235,10 @@ impl flowgen_core::task::runner::Runner for JobCreator {
     /// Individual event processing errors are logged but don't terminate the processor.
     async fn init(&self) -> Result<EventHandler, Error> {
         // Initialize secure HTTP client (HTTPS only for security)
-        let client = reqwest::ClientBuilder::new().https_only(true).build().map_err(|e| Error::Reqwest { source: e })?;
+        let client = reqwest::ClientBuilder::new()
+            .https_only(true)
+            .build()
+            .map_err(|e| Error::Reqwest { source: e })?;
         let client = Arc::new(client);
 
         // Create handler for this specific job creation request
@@ -369,7 +374,6 @@ impl ProcessorBuilder {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,10 +407,10 @@ mod tests {
         let creds = Credentials {
             bearer_auth: Some("token123".to_string()),
         };
-        
+
         let json = serde_json::to_string(&creds).unwrap();
         let deserialized: Credentials = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(creds, deserialized);
     }
 
@@ -423,10 +427,10 @@ mod tests {
     fn test_error_display() {
         let err = Error::MissingRequiredAttribute("config".to_string());
         assert_eq!(err.to_string(), "Missing required attribute: config");
-        
+
         let err = Error::NoSalesforceAuthToken();
         assert_eq!(err.to_string(), "missing salesforce access token");
-        
+
         let err = Error::NoSalesforceInstanceURL();
         assert_eq!(err.to_string(), "missing salesforce instance URL");
     }
@@ -462,7 +466,7 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         });
-        
+
         let builder = ProcessorBuilder::new().config(Arc::clone(&config));
         assert!(builder.config.is_some());
     }
@@ -470,11 +474,9 @@ mod tests {
     #[tokio::test]
     async fn test_processor_builder_channels() {
         let (tx, rx) = broadcast::channel::<Event>(100);
-        
-        let builder = ProcessorBuilder::new()
-            .sender(tx.clone())
-            .receiver(rx);
-        
+
+        let builder = ProcessorBuilder::new().sender(tx.clone()).receiver(rx);
+
         assert!(builder.tx.is_some());
         assert!(builder.rx.is_some());
     }
@@ -488,14 +490,12 @@ mod tests {
     #[tokio::test]
     async fn test_processor_builder_build_missing_config() {
         let (tx, rx) = broadcast::channel::<Event>(100);
-        
-        let builder = ProcessorBuilder::new()
-            .sender(tx)
-            .receiver(rx);
-        
+
+        let builder = ProcessorBuilder::new().sender(tx).receiver(rx);
+
         let result = builder.build().await;
         assert!(result.is_err());
-        
+
         match result {
             Err(Error::MissingRequiredAttribute(attr)) => {
                 assert_eq!(attr, "config");
@@ -507,7 +507,7 @@ mod tests {
     #[tokio::test]
     async fn test_processor_builder_build_missing_receiver() {
         let (tx, _) = broadcast::channel::<Event>(100);
-        
+
         let config = Arc::new(super::super::config::JobCreator {
             name: "test".to_string(),
             label: None,
@@ -521,14 +521,12 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         });
-        
-        let builder = ProcessorBuilder::new()
-            .config(config)
-            .sender(tx);
-        
+
+        let builder = ProcessorBuilder::new().config(config).sender(tx);
+
         let result = builder.build().await;
         assert!(result.is_err());
-        
+
         match result {
             Err(Error::MissingRequiredAttribute(attr)) => {
                 assert_eq!(attr, "receiver");
@@ -540,7 +538,7 @@ mod tests {
     #[tokio::test]
     async fn test_processor_builder_build_missing_sender() {
         let (_, rx) = broadcast::channel::<Event>(100);
-        
+
         let config = Arc::new(super::super::config::JobCreator {
             name: "test".to_string(),
             label: None,
@@ -554,14 +552,12 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         });
-        
-        let builder = ProcessorBuilder::new()
-            .config(config)
-            .receiver(rx);
-        
+
+        let builder = ProcessorBuilder::new().config(config).receiver(rx);
+
         let result = builder.build().await;
         assert!(result.is_err());
-        
+
         match result {
             Err(Error::MissingRequiredAttribute(attr)) => {
                 assert_eq!(attr, "sender");
@@ -573,7 +569,7 @@ mod tests {
     #[tokio::test]
     async fn test_processor_builder_build_success() {
         let (tx, rx) = broadcast::channel::<Event>(100);
-        
+
         let config = Arc::new(super::super::config::JobCreator {
             name: "test_job".to_string(),
             label: Some("test".to_string()),
@@ -587,7 +583,7 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         });
-        
+
         let result = ProcessorBuilder::new()
             .config(config)
             .sender(tx)
@@ -595,7 +591,7 @@ mod tests {
             .current_task_id(3)
             .build()
             .await;
-        
+
         assert!(result.is_ok());
         let processor = result.unwrap();
         assert_eq!(processor.current_task_id, 3);
@@ -604,7 +600,7 @@ mod tests {
     #[tokio::test]
     async fn test_processor_builder_chaining() {
         let (tx, rx) = broadcast::channel::<Event>(100);
-        
+
         let config = Arc::new(super::super::config::JobCreator {
             name: "chain_test".to_string(),
             label: Some("chained".to_string()),
@@ -618,7 +614,7 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         });
-        
+
         // Test method chaining
         let result = ProcessorBuilder::new()
             .config(config)
@@ -627,7 +623,7 @@ mod tests {
             .current_task_id(10)
             .build()
             .await;
-        
+
         assert!(result.is_ok());
     }
 
@@ -635,7 +631,7 @@ mod tests {
     fn test_event_subject_generation_with_label() {
         let label = Some("test_label".to_string());
         let timestamp = 1234567890123456i64;
-        
+
         let subject = match &label {
             Some(l) => format!(
                 "{}.{}.{}",
@@ -645,7 +641,7 @@ mod tests {
             ),
             None => format!("{}.{}", DEFAULT_MESSAGE_SUBJECT, timestamp),
         };
-        
+
         assert_eq!(subject, "bulkapicreate.test_label.1234567890123456");
     }
 
@@ -653,7 +649,7 @@ mod tests {
     fn test_event_subject_generation_without_label() {
         let label: Option<String> = None;
         let timestamp = 1234567890123456i64;
-        
+
         let subject = match &label {
             Some(l) => format!(
                 "{}.{}.{}",
@@ -663,7 +659,7 @@ mod tests {
             ),
             None => format!("{}.{}", DEFAULT_MESSAGE_SUBJECT, timestamp),
         };
-        
+
         assert_eq!(subject, "bulkapicreate.1234567890123456");
     }
 
@@ -674,7 +670,7 @@ mod tests {
         let content_type = Some(super::super::config::ContentType::Csv);
         let column_delimiter = Some(super::super::config::ColumnDelimiter::Comma);
         let line_ending = Some(super::super::config::LineEnding::Lf);
-        
+
         let payload = json!({
             "operation": operation,
             "query": query,
@@ -682,7 +678,7 @@ mod tests {
             "columnDelimiter": column_delimiter,
             "lineEnding": line_ending,
         });
-        
+
         assert!(payload.get("operation").is_some());
         assert!(payload.get("query").is_some());
         assert!(payload.get("contentType").is_some());
@@ -694,12 +690,12 @@ mod tests {
     fn test_query_all_operation_payload_structure() {
         let operation = super::super::config::Operation::QueryAll;
         let query = Some("SELECT Id FROM Account".to_string());
-        
+
         let payload = json!({
             "operation": operation,
             "query": query,
         });
-        
+
         assert!(payload.get("operation").is_some());
         assert!(payload.get("query").is_some());
     }
@@ -707,7 +703,7 @@ mod tests {
     #[tokio::test]
     async fn test_event_handler_creation() {
         let (tx, _) = broadcast::channel::<Event>(100);
-        
+
         let config = Arc::new(super::super::config::JobCreator {
             name: "handler_test".to_string(),
             label: Some("test".to_string()),
@@ -721,16 +717,16 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         });
-        
+
         let client = Arc::new(reqwest::Client::new());
-        
+
         let handler = EventHandler {
             client,
             config,
             tx,
             current_task_id: 1,
         };
-        
+
         assert_eq!(handler.current_task_id, 1);
     }
 
@@ -739,7 +735,7 @@ mod tests {
         // Test that Error implements From for various source errors
         let service_err = Error::MissingRequiredAttribute("test".to_string());
         let _: Error = service_err.into();
-        
+
         // These conversions should compile
         fn _test_conversions() {
             let _: Error = Error::MissingRequiredAttribute("x".to_string()).into();
@@ -750,7 +746,7 @@ mod tests {
     async fn test_builder_default_trait() {
         let builder1 = ProcessorBuilder::new();
         let builder2 = ProcessorBuilder::default();
-        
+
         assert_eq!(builder1.current_task_id, builder2.current_task_id);
     }
 
@@ -765,25 +761,25 @@ mod tests {
             super::super::config::Operation::HardDelete,
             super::super::config::Operation::Upsert,
         ];
-        
+
         // Serialize all operations and verify they're distinct
         let serialized: Vec<String> = ops
             .iter()
             .map(|op| serde_json::to_string(op).unwrap())
             .collect();
-        
+
         let unique_count = serialized
             .iter()
             .collect::<std::collections::HashSet<_>>()
             .len();
-        
+
         assert_eq!(unique_count, ops.len());
     }
 
     #[tokio::test]
     async fn test_job_creator_structure() {
         let (tx, rx) = broadcast::channel::<Event>(100);
-        
+
         let config = Arc::new(super::super::config::JobCreator {
             name: "struct_test".to_string(),
             label: None,
@@ -797,14 +793,14 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         });
-        
+
         let processor = JobCreator {
             config: Arc::clone(&config),
             tx: tx.clone(),
             rx,
             current_task_id: 5,
         };
-        
+
         assert_eq!(processor.current_task_id, 5);
         assert_eq!(processor.config.name, "struct_test");
     }
@@ -829,7 +825,7 @@ mod tests {
     async fn test_processor_builder_order_independence() {
         let (tx, rx) = broadcast::channel::<Event>(100);
         let (tx2, rx2) = broadcast::channel::<Event>(100);
-        
+
         let config = Arc::new(super::super::config::JobCreator {
             name: "order_test".to_string(),
             label: None,
@@ -843,7 +839,7 @@ mod tests {
             assignment_rule_id: None,
             external_id_field_name: None,
         });
-        
+
         // Build in different orders
         let result1 = ProcessorBuilder::new()
             .config(Arc::clone(&config))
@@ -852,7 +848,7 @@ mod tests {
             .current_task_id(1)
             .build()
             .await;
-        
+
         let result2 = ProcessorBuilder::new()
             .current_task_id(1)
             .receiver(rx2)
@@ -860,7 +856,7 @@ mod tests {
             .config(Arc::clone(&config))
             .build()
             .await;
-        
+
         assert!(result1.is_ok());
         assert!(result2.is_ok());
     }
@@ -870,7 +866,7 @@ mod tests {
         let creds = Credentials {
             bearer_auth: Some("token123".to_string()),
         };
-        
+
         let json_str = serde_json::to_string(&creds).unwrap();
         assert!(json_str.contains("bearer_auth"));
         assert!(json_str.contains("token123"));
@@ -881,11 +877,9 @@ mod tests {
         let creds_with_auth = Credentials {
             bearer_auth: Some("token".to_string()),
         };
-        
-        let creds_without_auth = Credentials {
-            bearer_auth: None,
-        };
-        
+
+        let creds_without_auth = Credentials { bearer_auth: None };
+
         assert!(creds_with_auth.bearer_auth.is_some());
         assert!(creds_without_auth.bearer_auth.is_none());
     }

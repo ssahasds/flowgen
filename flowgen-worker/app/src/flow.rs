@@ -64,6 +64,9 @@ pub enum Error {
     /// Error in Salesforce Bulk API Job Creator task.
     #[error(transparent)]
     BulkapiJobCreatorError(#[from] flowgen_salesforce::bulkapi::job_creator::Error),
+    /// Error in Salesforce Bulk API Job Retriever task.
+    #[error(transparent)]
+    BulkapiJobRetrieverError(#[from] flowgen_salesforce::bulkapi::job_retriever::Error),
 }
 
 pub struct Flow {
@@ -522,7 +525,29 @@ async fn spawn_tasks(
                             .await?
                             .run()
                             .await?;
+                        Ok(())
+                    }
+                    .instrument(span),
+                );
+                background_tasks.push(task);
+            }
 
+            Task::salesforce_bulkapi_job_retriever(config) => {
+                let config = Arc::new(config.to_owned());
+                let rx = tx.subscribe();
+                let tx = tx.clone();
+                let span = tracing::Span::current();
+                let task: JoinHandle<Result<(), Error>> = tokio::spawn(
+                    async move {
+                        flowgen_salesforce::bulkapi::job_retriever::ProcessorBuilder::new()
+                            .config(config)
+                            .receiver(rx)
+                            .sender(tx)
+                            .current_task_id(i)
+                            .build()
+                            .await?
+                            .run()
+                            .await?;
                         Ok(())
                     }
                     .instrument(span),
@@ -552,6 +577,7 @@ async fn spawn_tasks(
                 );
                 background_tasks.push(task);
             }
+
             Task::object_store_reader(config) => {
                 let config = Arc::new(config.to_owned());
                 let rx = tx.subscribe();
