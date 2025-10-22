@@ -1,14 +1,14 @@
 use chrono::Utc;
 use flowgen_core::{
     client::Client,
-    event::{Event, EventBuilder, EventData},
+    event::{Event, EventBuilder, EventData, SenderExt},
 };
 use oauth2::TokenResponse;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::broadcast::{Receiver, Sender};
-use tracing::{error, event, Instrument, Level};
+use tracing::{error, Instrument};
 
 /// Default message subject prefix for bulk API create operations
 const DEFAULT_MESSAGE_SUBJECT: &str = "bulkapicreate";
@@ -198,10 +198,8 @@ impl EventHandler {
             .current_task_id(self.current_task_id)
             .build()?;
         self.tx
-            .send(e)
+            .send_with_logging(e)
             .map_err(|e| Error::SendMessage { source: e })?;
-        event!(Level::INFO, "Event processed: {}", subject);
-
         Ok(())
     }
 }

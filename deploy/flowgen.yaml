@@ -12,6 +12,7 @@ spec:
       labels:
         app: flowgen
     spec:
+      serviceAccountName: flowgen-worker
       containers:
       - image: flowgen:latest
         name: flowgen
@@ -22,6 +23,10 @@ spec:
             value: /etc/app/config.yaml
           - name: RUST_LOG
             value: "info,async_nats=warn"
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
         ports:
           - containerPort: 3000
         volumeMounts:

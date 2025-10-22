@@ -1,6 +1,7 @@
 {
     "flow": {
         "name": "account_salesforce_query_job_retrieve",
+        "require_leader_election": "true",
         "tasks": [
             {
                 "salesforce_pubsub_subscriber": {
@@ -29,11 +30,19 @@
                     "name": "account_nats_jetstream_publisher_salesforce_query_job_retrieve",
                     "label": "account_nats_jetstream_publisher_salesforce_query_job_retrieve",
                     "credentials_path": "/etc/nats/credentials.json",
-                    "stream": "eventbus",
+                    "stream": {
+                        "create_or_update": true,
+                        "name": "eventbus",
+                        "description": "account_nats_jetstream_publisher_salesforce_query_job_retrieve",
+                        "subjects": [
+                            "bulkapiretrieve.account.>"
+                        ],
+                        "max_age_secs": 86400,
+                        "retention": "limits",
+                        "discard_policy": "old"
+                    },
                     "stream_description": "main streaming event-bus of flowgen",
-                    "subjects": [
-                        "bulkapiretrieve.account.>"
-                    ]
+                    "subject": "bulkapiretrieve.account.>"
                 }
             }
         ]

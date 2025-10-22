@@ -3,7 +3,7 @@ use apache_avro::{from_avro_datum, Schema};
 use arrow::csv::reader::Format;
 use flowgen_core::{
     client::Client,
-    event::{generate_subject, Event, EventBuilder, EventData, SubjectSuffix, DEFAULT_LOG_MESSAGE},
+    event::{generate_subject, Event, EventBuilder, EventData, SubjectSuffix, SenderExt},
 };
 use oauth2::TokenResponse;
 use serde::{Deserialize, Serialize};
@@ -206,7 +206,7 @@ impl EventHandler {
                                         .ok_or_else(|| Error::NoSalesforceInstanceURL())?;
 
                                     // Create HTTP client request to download CSV results
-                                    let mut client = self.client.get(instance_url + result_url);
+                                    let mut client = self.client.get( format!("{}{}", instance_url, result_url));
 
                                     let token_result = sfdc_client
                                         .token_result
@@ -267,7 +267,7 @@ impl EventHandler {
 
                                             // Request job metadata to get object type
                                             let mut client = self.client.get(
-                                                instance_url + DEFAULT_JOB_METADATA_URI + job_id,
+                                                format!("{}{}{}", instance_url, DEFAULT_JOB_METADATA_URI, job_id),
                                             );
 
                                             let token_result = sfdc_client
@@ -308,15 +308,9 @@ impl EventHandler {
                                                     .subject(subject.clone())
                                                     .current_task_id(self.current_task_id)
                                                     .build()?;
-                                                self.tx.send(e.clone()).map_err(|e| {
+                                                self.tx.send_with_logging(e).map_err(|e| {
                                                     Error::SendMessage { source: e }
                                                 })?;
-                                                event!(
-                                                    Level::INFO,
-                                                    "{}: {}",
-                                                    DEFAULT_LOG_MESSAGE,
-                                                    e.subject
-                                                );
                                             }
                                         }
                                         Some((_, _)) => {
