@@ -6,7 +6,7 @@ use flowgen_core::{
     event::{generate_subject, Event, EventBuilder, EventData, SenderExt, SubjectSuffix},
 };
 use oauth2::TokenResponse;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::fs::File;
 use std::io::{Seek, Write};
 use std::sync::Arc;
@@ -96,20 +96,6 @@ struct JobResponse {
     /// This is used for constructing meaningful event subjects and logging.
     object: String,
 }
-
-/// Internal credentials structure for storing authentication information.
-///
-/// Currently supports bearer token authentication, with potential for expansion
-/// to other authentication methods in the future.
-#[derive(Deserialize, Serialize, PartialEq, Clone, Debug, Default)]
-struct Credentials {
-    /// Optional bearer authentication token
-    ///
-    /// When present, this token will be used for API authentication.
-    /// None indicates that other authentication methods should be used.
-    bearer_auth: Option<String>,
-}
-
 /// Main processor for retrieving Salesforce bulk job results.
 ///
 /// This struct coordinates the entire job result retrieval workflow, from receiving
@@ -519,57 +505,6 @@ mod tests {
     }
 
     #[test]
-    fn test_credentials_default() {
-        let creds = Credentials::default();
-        assert_eq!(creds.bearer_auth, None);
-    }
-
-    #[test]
-    fn test_credentials_creation() {
-        let creds = Credentials {
-            bearer_auth: Some("test_token_456".to_string()),
-        };
-        assert_eq!(creds.bearer_auth, Some("test_token_456".to_string()));
-    }
-
-    #[test]
-    fn test_credentials_serialization() {
-        let creds = Credentials {
-            bearer_auth: Some("token789".to_string()),
-        };
-
-        let json = serde_json::to_string(&creds).unwrap();
-        let deserialized: Credentials = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(creds, deserialized);
-    }
-
-    #[test]
-    fn test_credentials_clone() {
-        let creds1 = Credentials {
-            bearer_auth: Some("token_clone".to_string()),
-        };
-        let creds2 = creds1.clone();
-        assert_eq!(creds1, creds2);
-    }
-
-    #[test]
-    fn test_credentials_partial_eq() {
-        let creds1 = Credentials {
-            bearer_auth: Some("token1".to_string()),
-        };
-        let creds2 = Credentials {
-            bearer_auth: Some("token1".to_string()),
-        };
-        let creds3 = Credentials {
-            bearer_auth: Some("token2".to_string()),
-        };
-
-        assert_eq!(creds1, creds2);
-        assert_ne!(creds1, creds3);
-    }
-
-    #[test]
     fn test_error_display() {
         let err = Error::MissingRequiredAttribute("config".to_string());
         assert_eq!(err.to_string(), "Missing required attribute: config");
@@ -834,29 +769,6 @@ mod tests {
     }
 
     #[test]
-    fn test_credentials_json_format() {
-        let creds = Credentials {
-            bearer_auth: Some("token_json".to_string()),
-        };
-
-        let json_str = serde_json::to_string(&creds).unwrap();
-        assert!(json_str.contains("bearer_auth"));
-        assert!(json_str.contains("token_json"));
-    }
-
-    #[test]
-    fn test_credentials_optional_bearer_auth() {
-        let creds_with_auth = Credentials {
-            bearer_auth: Some("has_token".to_string()),
-        };
-
-        let creds_without_auth = Credentials { bearer_auth: None };
-
-        assert!(creds_with_auth.bearer_auth.is_some());
-        assert!(creds_without_auth.bearer_auth.is_none());
-    }
-
-    #[test]
     fn test_uri_path_version() {
         // Verify the API version is properly formatted
         assert!(DEFAULT_JOB_METADATA_URI.contains("v61.0"));
@@ -1041,16 +953,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_credentials_debug_implementation() {
-        let creds = Credentials {
-            bearer_auth: Some("debug_token".to_string()),
-        };
-        let debug_str = format!("{:?}", creds);
-        assert!(debug_str.contains("Credentials"));
-        assert!(debug_str.contains("bearer_auth"));
-    }
-
     #[tokio::test]
     async fn test_multiple_builder_instances() {
         let (tx1, rx1) = broadcast::channel::<Event>(100);
@@ -1153,20 +1055,6 @@ mod integration_tests {
             .await;
 
         assert!(result2.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_credentials_flow() {
-        // Test that credentials can be created, serialized, and deserialized
-        let original = Credentials {
-            bearer_auth: Some("integration_token".to_string()),
-        };
-
-        let json = serde_json::to_string(&original).unwrap();
-        let restored: Credentials = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(original, restored);
-        assert_eq!(original.bearer_auth, Some("integration_token".to_string()));
     }
 
     #[tokio::test]
