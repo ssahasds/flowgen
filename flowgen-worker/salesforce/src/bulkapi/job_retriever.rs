@@ -13,18 +13,15 @@ use std::sync::Arc;
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{event, Level};
 
-/// Default message subject prefix for bulk API retrieve operations
+/// Message subject prefix for bulk API retrieve operations.
 const DEFAULT_MESSAGE_SUBJECT: &str = "bulkapiretrieve";
-/// Default Salesforce Bulk API endpoint path for job metadata retrieval (API version 61.0)
+/// Salesforce Bulk API endpoint for job metadata (API v61.0).
 const DEFAULT_JOB_METADATA_URI: &str = "/services/data/v61.0/jobs/query/";
 
-/// Comprehensive error types for Salesforce bulk job retrieval operations.
-///
-/// This enum encapsulates all possible error conditions that can occur during
-/// the job retrieval process, from file I/O operations to API communication issues.
+/// Errors for Salesforce bulk job retrieval operations.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    /// File system I/O error (file creation, reading, writing, seeking)
+    /// File system I/O error.
     #[error("IO operation failed: {source}")]
     IO {
         #[source]
@@ -45,19 +42,13 @@ pub enum Error {
         #[source]
         source: reqwest::Error,
     },
-    /// Salesforce authentication or client initialization error
-    ///
-    /// Occurs when credential loading, OAuth flow, or client setup fails.
+    /// Salesforce authentication or client initialization error.
     #[error(transparent)]
     SalesforceAuth(#[from] crate::client::Error),
-    /// Event creation or processing error from flowgen_core
-    ///
-    /// Wraps errors that occur during event building or data serialization.
+    /// Event creation or processing error.
     #[error(transparent)]
     Event(#[from] flowgen_core::event::Error),
-    /// Missing or invalid Salesforce access token
-    ///
-    /// Indicates that the OAuth authentication process didn't produce a valid token.
+    /// Missing or invalid Salesforce access token.
     #[error("missing salesforce access token")]
     NoSalesforceAuthToken(),
     /// Arrow data processing error.
@@ -75,7 +66,7 @@ pub enum Error {
     /// Missing Salesforce instance URL.
     #[error("missing salesforce instance URL")]
     NoSalesforceInstanceURL(),
-    /// JSON serialization/deserialization failed.
+    /// Avro schema parsing failed.
     #[error("JSON serialization/deserialization failed: {source}")]
     ParseSchema {
         #[source]
@@ -83,81 +74,39 @@ pub enum Error {
     },
 }
 
-/// Response structure for Salesforce job metadata API calls.
-///
-/// This struct represents the essential information returned when querying
-/// job metadata from the Salesforce Bulk API, particularly the object type
-/// that the job operates on.
+/// Salesforce job metadata API response.
 #[derive(Debug, Deserialize)]
 struct JobResponse {
-    /// The Salesforce object type that this job processes
-    ///
-    /// Examples: "Account", "Contact", "Custom_Object__c"
-    /// This is used for constructing meaningful event subjects and logging.
+    /// Salesforce object type (e.g., "Account", "Contact").
     object: String,
 }
-/// Main processor for retrieving Salesforce bulk job results.
-///
-/// This struct coordinates the entire job result retrieval workflow, from receiving
-/// Avro events containing job information to downloading CSV results and converting
-/// them to Arrow record batches for downstream processing.
+
+/// Processor for retrieving Salesforce bulk job results.
 pub struct JobRetriever {
-    /// Shared configuration containing authentication details and processing options
+    /// Job configuration and authentication details.
     config: Arc<super::config::JobRetriever>,
-    /// Broadcast sender for emitting processed Arrow record batches downstream
+    /// Broadcast sender for emitting Arrow record batches.
     tx: Sender<Event>,
-    /// Broadcast receiver for incoming Avro events containing job information
+    /// Broadcast receiver for incoming Avro events.
     rx: Receiver<Event>,
-    /// Unique identifier for tracking this processor's events in the pipeline
+    /// Unique identifier for tracking events.
     current_task_id: usize,
 }
 
-/// Internal event handler responsible for processing individual job retrieval requests.
-///
-/// This struct encapsulates the logic for extracting job information from Avro events,
-/// downloading CSV results from Salesforce, converting them to Arrow format, and
-/// emitting the processed data as events.
+/// Event handler for processing individual job retrieval requests.
 pub struct EventHandler {
-    /// HTTP client for making requests to the Salesforce API
+    /// HTTP client for Salesforce API requests.
     client: Arc<reqwest::Client>,
-    /// Processor configuration containing authentication and processing details
+    /// Processor configuration.
     config: Arc<super::config::JobRetriever>,
-    /// Channel sender for emitting processed Arrow record batches
+    /// Channel sender for emitting processed data.
     tx: Sender<Event>,
-    /// Task identifier for event correlation and tracking
+    /// Task identifier for event correlation.
     current_task_id: usize,
 }
 
 impl EventHandler {
-    /// Processes a job retrieval event and handles the complete data download workflow.
-    ///
-    /// This method orchestrates the entire job result retrieval process:
-    /// 1. Parses Avro event data to extract job information (ResultUrl, JobIdentifier)
-    /// 2. Downloads CSV result data from the Salesforce ResultUrl
-    /// 3. Writes the CSV data to a temporary file for processing
-    /// 4. Uses Arrow to infer schema and parse the CSV into record batches
-    /// 5. Retrieves job metadata to determine the object type for event naming
-    /// 6. Emits each record batch as a separate event for downstream processing
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The incoming Avro event containing job completion information
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the job results were successfully retrieved and emitted,
-    /// or an `Error` if any step in the process failed.
-    ///
-    /// # Errors
-    ///
-    /// This method can return various errors including:
-    /// - `SalesforceAuth` errors for credential or authentication issues
-    /// - `NoSalesforceAuthToken` if authentication didn't produce a valid token
-    /// - `Reqwest` errors for HTTP communication problems
-    /// - `Arrow` errors for Avro parsing or Arrow processing issues
-    /// - `IO` errors for file operations
-    /// - `SerdeJson` errors for JSON response parsing
-    /// - `SendMessage` errors if events cannot be emitted
+    /// Processes job retrieval: extract job info, download CSV, convert to Arrow, emit events.
     async fn handle(self, event: Event) -> Result<(), Error> {
         let config = self.config.as_ref();
 
@@ -167,19 +116,19 @@ impl EventHandler {
             .connect()
             .await?;
 
-        // Process only Avro events containing job completion data
+        // Process only Avro events with job completion data.
         if let EventData::Avro(value) = &event.data {
-            // Parse the Avro schema from the event
+            // Parse Avro schema from event.
             let schema =
                 Schema::parse_str(&value.schema).map_err(|e| Error::ParseSchema { source: e })?;
 
-            // Deserialize the Avro binary data using the schema
+            // Deserialize Avro binary data.
             let value = from_avro_datum(&schema, &mut value.raw_bytes.as_slice(), None)
                 .map_err(|e| Error::ParseSchema { source: e })?;
 
-            // Process the deserialized Avro record
+            // Process deserialized Avro record.
             if let Value::Record(fields) = value {
-                // Extract the ResultUrl field which contains the download URL for CSV results
+                // Extract ResultUrl containing CSV download URL.
                 match fields.iter().find(|(name, _)| name == "ResultUrl") {
                     Some((_, Value::Union(_, inner_value))) => {
                         match &**inner_value {
@@ -188,7 +137,7 @@ impl EventHandler {
                                     .instance_url
                                     .ok_or_else(Error::NoSalesforceInstanceURL)?;
 
-                                // Create HTTP client request to download CSV results
+                                // Create HTTP request to download CSV results.
                                 let mut client =
                                     self.client.get(format!("{}{}", instance_url, result_url));
 
@@ -198,7 +147,7 @@ impl EventHandler {
 
                                 client = client.bearer_auth(token_result.access_token().secret());
 
-                                // Download the CSV result data
+                                // Download CSV result data.
                                 let resp = client
                                     .send()
                                     .await
@@ -207,36 +156,35 @@ impl EventHandler {
                                     .await
                                     .map_err(|e| Error::Reqwest { source: e })?;
 
-                                // Write CSV data to temporary file for Arrow processing
-                                // TODO: Consider using in-memory processing or configurable output paths
+                                // Write CSV to temporary file.
+                                // TODO: Consider in-memory processing or configurable paths.
                                 let file_path = "output.csv";
                                 let mut file = File::create(file_path).unwrap();
                                 file.write_all(&resp).map_err(|e| Error::IO { source: e })?;
 
-                                // Reopen file for reading and schema inference
+                                // Reopen file for reading and schema inference.
                                 let mut file =
                                     File::open(file_path).map_err(|e| Error::IO { source: e })?;
 
-                                // Use Arrow to infer CSV schema from the first 100 rows
+                                // Infer CSV schema from first 100 rows.
                                 let (schema, _) = Format::default()
                                     .with_header(true)
                                     .infer_schema(&file, Some(100))
                                     .map_err(|e| Error::Arrow { source: e })?;
 
-                                // Reset file pointer to beginning for full read
+                                // Reset file pointer to beginning.
                                 file.rewind().map_err(|e| Error::IO { source: e })?;
 
-                                // Create Arrow CSV reader with inferred schema
+                                // Create Arrow CSV reader.
                                 let csv = arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
                                     .with_header(true)
                                     .with_batch_size(100)
                                     .build(&file)
                                     .map_err(|e| Error::Arrow { source: e })?;
 
-                                // Extract JobIdentifier for metadata retrieval
+                                // Extract JobIdentifier for metadata retrieval.
                                 match fields.iter().find(|(name, _)| name == "JobIdentifier") {
                                     Some((_, Value::String(job_id))) => {
-                                        // Create new client for job metadata retrieval
                                         let sfdc_client = crate::client::Builder::new()
                                             .credentials_path(config.credentials_path.clone())
                                             .build()?
@@ -247,7 +195,7 @@ impl EventHandler {
                                             .instance_url
                                             .ok_or_else(Error::NoSalesforceInstanceURL)?;
 
-                                        // Request job metadata to get object type
+                                        // Request job metadata to get object type.
                                         let mut client = self.client.get(format!(
                                             "{}{}{}",
                                             instance_url, DEFAULT_JOB_METADATA_URI, job_id
@@ -260,7 +208,7 @@ impl EventHandler {
                                         client = client
                                             .bearer_auth(token_result.access_token().secret());
 
-                                        // Retrieve job metadata
+                                        // Retrieve job metadata.
                                         let resp = client
                                             .send()
                                             .await
@@ -278,9 +226,8 @@ impl EventHandler {
                                             SubjectSuffix::Timestamp,
                                         );
 
-                                        // Process each Arrow record batch and emit as separate events
+                                        // Process each Arrow record batch and emit as events.
                                         for data in csv {
-                                            // Create event with Arrow record batch data
                                             let e = EventBuilder::new()
                                                 .data(EventData::ArrowRecordBatch(
                                                     data.map_err(|e| Error::Arrow { source: e })?,
@@ -313,20 +260,12 @@ impl EventHandler {
     }
 }
 
-/// Builder pattern implementation for constructing JobRetriever instances.
-///
-/// This builder ensures that all required components are provided and properly
-/// configured before creating a JobRetriever instance. It follows the standard
-/// Rust builder pattern with method chaining for ergonomic configuration.
+/// Builder for constructing JobRetriever instances.
 #[derive(Default)]
 pub struct ProcessorBuilder {
-    /// Job retriever configuration (required)
     config: Option<Arc<super::config::JobRetriever>>,
-    /// Event sender channel (required)
     tx: Option<Sender<Event>>,
-    /// Event receiver channel (required)
     rx: Option<Receiver<Event>>,
-    /// Task identifier for event correlation (defaults to 0)
     current_task_id: usize,
 }
 
@@ -335,37 +274,15 @@ impl flowgen_core::task::runner::Runner for JobRetriever {
     type Error = Error;
     type EventHandler = EventHandler;
 
-    /// Main execution loop for the job retriever processor.
-    ///
-    /// This method implements the flowgen_core Runner trait and provides the
-    /// main execution logic for the processor. It:
-    /// 1. Sets up an HTTPS-only HTTP client for security
-    /// 2. Continuously listens for incoming Avro events containing job information
-    /// 3. Processes events that match the expected task ID
-    /// 4. Spawns asynchronous handlers for each job result retrieval request
-    ///
-    /// The method uses task ID filtering to ensure that only events intended
-    /// for this specific processor instance are handled, enabling proper
-    /// pipeline orchestration in multi-step workflows.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the processor shuts down cleanly, or an `Error` if
-    /// critical initialization or processing failures occur.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Reqwest` error if the HTTP client cannot be initialized.
-    /// Individual event processing errors are logged but don't terminate the processor.
+    /// Initializes HTTPS client and creates event handler.
     async fn init(&self) -> Result<EventHandler, Error> {
-        // Initialize secure HTTP client (HTTPS only for security)
+        // Initialize secure HTTP client (HTTPS only).
         let client = reqwest::ClientBuilder::new()
             .https_only(true)
             .build()
             .map_err(|e| Error::Reqwest { source: e })?;
         let client = Arc::new(client);
 
-        // Create handler for this specific job creation request
         let event_handler = EventHandler {
             config: Arc::clone(&self.config),
             current_task_id: self.current_task_id,
@@ -375,25 +292,24 @@ impl flowgen_core::task::runner::Runner for JobRetriever {
         Ok(event_handler)
     }
 
+    /// Main execution loop: listen for events, filter by task ID, spawn handlers.
     async fn run(mut self) -> Result<(), Error> {
-        // Initialize secure HTTP client (HTTPS only for security)
+        // Initialize secure HTTP client (HTTPS only).
         let client = reqwest::ClientBuilder::new()
             .https_only(true)
             .build()
             .map_err(|e| Error::Reqwest { source: e })?;
         let client = Arc::new(client);
 
-        // Main event processing loop
+        // Main event processing loop.
         while let Ok(event) = self.rx.recv().await {
-            // Filter events by task ID to ensure proper pipeline ordering
+            // Filter events by task ID for proper pipeline ordering.
             if event.current_task_id == Some(self.current_task_id - 1) {
-                // Clone shared resources for the async handler
                 let config = Arc::clone(&self.config);
                 let client = Arc::clone(&client);
                 let tx = self.tx.clone();
                 let current_task_id = self.current_task_id;
 
-                // Create handler for this specific job retrieval request
                 let event_handler = EventHandler {
                     config,
                     current_task_id,
@@ -401,7 +317,7 @@ impl flowgen_core::task::runner::Runner for JobRetriever {
                     client,
                 };
 
-                // Process the event asynchronously to avoid blocking the main loop
+                // Process event asynchronously.
                 tokio::spawn(async move {
                     if let Err(err) = event_handler.handle(event).await {
                         event!(Level::ERROR, "{}", err);
@@ -414,9 +330,7 @@ impl flowgen_core::task::runner::Runner for JobRetriever {
 }
 
 impl ProcessorBuilder {
-    /// Creates a new ProcessorBuilder with default values.
-    ///
-    /// All optional fields are initialized to None, and current_task_id is set to 0.
+    /// Creates a new ProcessorBuilder with defaults.
     pub fn new() -> ProcessorBuilder {
         ProcessorBuilder {
             ..Default::default()
@@ -424,56 +338,30 @@ impl ProcessorBuilder {
     }
 
     /// Sets the job retriever configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Shared configuration containing authentication details and processing options
     pub fn config(mut self, config: Arc<super::config::JobRetriever>) -> Self {
         self.config = Some(config);
         self
     }
 
     /// Sets the event receiver channel.
-    ///
-    /// # Arguments
-    ///
-    /// * `receiver` - Broadcast receiver for incoming Avro events containing job information
     pub fn receiver(mut self, receiver: Receiver<Event>) -> Self {
         self.rx = Some(receiver);
         self
     }
 
     /// Sets the event sender channel.
-    ///
-    /// # Arguments
-    ///
-    /// * `sender` - Broadcast sender for emitting processed Arrow record batches
     pub fn sender(mut self, sender: Sender<Event>) -> Self {
         self.tx = Some(sender);
         self
     }
 
-    /// Sets the task identifier for event correlation.
-    ///
-    /// # Arguments
-    ///
-    /// * `current_task_id` - Unique identifier for tracking this processor's events
+    /// Sets the task identifier.
     pub fn current_task_id(mut self, current_task_id: usize) -> Self {
         self.current_task_id = current_task_id;
         self
     }
 
-    /// Builds the JobRetriever instance after validating required fields.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(JobRetriever)` if all required fields are provided, or an `Error`
-    /// indicating which required field is missing.
-    ///
-    /// # Errors
-    ///
-    /// Returns `MissingRequiredAttribute` error if any of the required fields
-    /// (config, receiver, sender) are not provided.
+    /// Builds JobRetriever after validating required fields.
     pub async fn build(self) -> Result<JobRetriever, Error> {
         Ok(JobRetriever {
             config: self
@@ -684,7 +572,6 @@ mod tests {
             credentials_path: PathBuf::from("/chain.json"),
         });
 
-        // Test method chaining
         let result = ProcessorBuilder::new()
             .config(config)
             .sender(tx)
@@ -706,7 +593,6 @@ mod tests {
             credentials_path: PathBuf::from("/test.json"),
         });
 
-        // Build in different orders
         let result1 = ProcessorBuilder::new()
             .config(Arc::clone(&config))
             .sender(tx)
@@ -770,7 +656,6 @@ mod tests {
 
     #[test]
     fn test_uri_path_version() {
-        // Verify the API version is properly formatted
         assert!(DEFAULT_JOB_METADATA_URI.contains("v61.0"));
         assert!(DEFAULT_JOB_METADATA_URI.starts_with("/services/data/"));
         assert!(DEFAULT_JOB_METADATA_URI.ends_with("/jobs/query/"));
@@ -778,7 +663,6 @@ mod tests {
 
     #[test]
     fn test_message_subject_format() {
-        // Verify the message subject follows expected naming convention
         assert_eq!(DEFAULT_MESSAGE_SUBJECT, "bulkapiretrieve");
         assert!(!DEFAULT_MESSAGE_SUBJECT.contains(" "));
         assert!(!DEFAULT_MESSAGE_SUBJECT.contains("."));
@@ -786,7 +670,6 @@ mod tests {
 
     #[test]
     fn test_error_from_conversions() {
-        // Test that Error implements From for various source errors
         let sfdc_err = crate::client::Error::MissingRequiredAttribute("test".to_string());
         let _: Error = sfdc_err.into();
 
@@ -821,8 +704,6 @@ mod tests {
 
     #[test]
     fn test_error_reqwest_variant() {
-        // Note: Creating a real reqwest::Error is difficult in tests,
-        // but we can verify the structure exists
         let err_str = "HTTP request failed";
         assert!(err_str.contains("HTTP request failed"));
     }
@@ -845,7 +726,6 @@ mod tests {
             .contains("JSON serialization/deserialization failed"));
     }
 
-    // Helper function to create a test Avro schema
     fn create_test_avro_schema() -> String {
         r#"{
             "type": "record",
@@ -864,7 +744,6 @@ mod tests {
         .to_string()
     }
 
-    // Helper function to create test Avro data
     fn create_test_avro_data() -> Vec<u8> {
         let schema_str = create_test_avro_schema();
         let schema = Schema::parse_str(&schema_str).unwrap();

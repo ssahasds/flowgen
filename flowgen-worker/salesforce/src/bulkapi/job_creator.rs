@@ -9,14 +9,12 @@ use std::sync::Arc;
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{error, Instrument};
 
-/// Default message subject prefix for bulk API create operations
+/// Message subject prefix for bulk API create operations.
 const DEFAULT_MESSAGE_SUBJECT: &str = "bulkapicreate";
-/// Default Salesforce Bulk API endpoint path for query jobs (API version 61.0)
+/// Salesforce Bulk API endpoint for query jobs (API v61.0).
 const DEFAULT_URI_PATH: &str = "/services/data/v61.0/jobs/query";
 
-/// Comprehensive error types for Salesforce bulk job creation operations.
-/// This enum encapsulates all possible error conditions that can occur during
-/// the job creation process, from authentication failures to API communication issues.
+/// Errors for Salesforce bulk job creation operations.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// Failed to send event through broadcast channel.
@@ -39,79 +37,48 @@ pub enum Error {
         source: reqwest::Error,
     },
 
-    /// Salesforce authentication or client initialization error
-    ///
-    /// Occurs when credential loading, OAuth flow, or client setup fails.
+    /// Salesforce authentication or client initialization error.
     #[error(transparent)]
     SalesforceAuth(#[from] crate::client::Error),
 
-    /// Event creation or processing error from flowgen_core
-    ///
-    /// Wraps errors that occur during event building or data serialization.
+    /// Event creation or processing error.
     #[error(transparent)]
     Event(#[from] flowgen_core::event::Error),
 
-    /// Missing or invalid Salesforce access token
-    ///
-    /// Indicates that the OAuth authentication process didn't produce a valid token.
+    /// Missing or invalid Salesforce access token.
     #[error("missing salesforce access token")]
     NoSalesforceAuthToken(),
 
     #[error("missing salesforce instance URL")]
     NoSalesforceInstanceURL(),
 }
-/// Main processor for creating Salesforce bulk API jobs.
-/// This struct coordinates the entire job creation workflow, from receiving
-/// trigger events to authenticating with Salesforce and submitting job requests.
-/// It implements the flowgen_core Runner trait for integration with the task system.
+
+/// Processor for creating Salesforce bulk API jobs.
 pub struct JobCreator {
-    /// Shared configuration containing job parameters and authentication details
+    /// Job configuration and authentication details.
     config: Arc<super::config::JobCreator>,
-    /// Broadcast sender for emitting processed events downstream
+    /// Broadcast sender for emitting processed events.
     tx: Sender<Event>,
-    /// Broadcast receiver for incoming trigger events
+    /// Broadcast receiver for incoming trigger events.
     rx: Receiver<Event>,
-    /// Unique identifier for tracking this processor's events in the pipeline
+    /// Unique identifier for tracking events.
     current_task_id: usize,
 }
 
-/// Internal event handler responsible for processing individual job creation requests.
-/// This struct encapsulates the logic for authenticating with Salesforce,
-/// constructing the appropriate API payload, and making the HTTP request to create a bulk job.
+/// Event handler for processing individual job creation requests.
 pub struct EventHandler {
-    /// HTTP client for making requests to the Salesforce API
+    /// HTTP client for Salesforce API requests.
     client: Arc<reqwest::Client>,
-    /// Processor configuration containing job parameters and credentials
+    /// Processor configuration.
     config: Arc<super::config::JobCreator>,
-    /// Channel sender for emitting the job creation response
+    /// Channel sender for emitting job creation responses.
     tx: Sender<Event>,
-    /// Task identifier for event correlation and tracking
+    /// Task identifier for event correlation.
     current_task_id: usize,
 }
 
 impl EventHandler {
-    /// Processes a job creation request and handles the complete workflow.
-    ///
-    /// This method orchestrates the entire job creation process:
-    /// 1. Loads and validates Salesforce credentials
-    /// 2. Authenticates with Salesforce to obtain access token
-    /// 3. Constructs the appropriate API payload based on operation type
-    /// 4. Makes the HTTP request to create the bulk job
-    /// 5. Processes the response and emits it as an event
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the job was successfully created and the response was emitted,
-    /// or an `Error` if any step in the process failed.
-    ///
-    /// # Errors
-    ///
-    /// This method can return various errors including:
-    /// - `SalesforceAuth` errors for credential or authentication issues
-    /// - `NoSalesforceAuthToken` if authentication didn't produce a valid token
-    /// - `Reqwest` errors for HTTP communication problems
-    /// - `Event` errors for response processing issues
-    /// - `SendMessage` errors if the response cannot be emitted
+    /// Processes a job creation request: authenticate, build payload, create job, emit response.
     async fn handle(&self) -> Result<(), Error> {
         let config = self.config.as_ref();
 
@@ -121,16 +88,15 @@ impl EventHandler {
             .connect()
             .await?;
 
-        // Extract access token from authentication result
+        // Extract access token from authentication result.
         let token_result = sfdc_client
             .token_result
             .ok_or_else(Error::NoSalesforceAuthToken)?;
 
-        // Construct API payload based on the requested operation type
+        // Build API payload based on operation type.
         let payload = match self.config.operation {
             super::config::Operation::Query | super::config::Operation::QueryAll => {
-                // Create payload for query or queryall job.
-                // These operations require a SOQL query and output format specifications.
+                // Query operations require SOQL query and output format specs.
                 json!({
                     "operation": self.config.operation,
                     "query": self.config.query,
@@ -140,9 +106,7 @@ impl EventHandler {
                 })
             }
             _ => {
-                // TODO: Implement payload construction for data manipulation operations
-                // (Insert, Update, Upsert, Delete, HardDelete)
-                // These operations will require object name and potentially external ID fields
+                // TODO: Implement Insert, Update, Upsert, Delete, HardDelete operations.
                 todo!("Implement other operations like Insert, Update, Upsert, Delete, HardDelete");
             }
         };
@@ -151,13 +115,13 @@ impl EventHandler {
             .instance_url
             .ok_or_else(Error::NoSalesforceInstanceURL)?;
 
-        // Configure HTTP client with Salesforce endpoint and authentication
+        // Configure HTTP client with endpoint and auth.
         let mut client = self.client.post(instance_url + DEFAULT_URI_PATH);
 
         client = client.bearer_auth(token_result.access_token().secret());
         client = client.json(&payload);
 
-        // Execute API request and retrieve response
+        // Execute API request and retrieve response.
         let resp = client
             .send()
             .await
@@ -166,10 +130,9 @@ impl EventHandler {
             .await
             .map_err(|e| Error::Reqwest { source: e })?;
 
-        // Prepare the response data for event emission
         let data = json!(resp);
 
-        // Generate unique event subject for tracking and routing
+        // Generate unique event subject for tracking.
         let timestamp = Utc::now().timestamp_micros();
         let subject = match &self.config.label {
             Some(label) => format!(
@@ -181,7 +144,7 @@ impl EventHandler {
             None => format!("{DEFAULT_MESSAGE_SUBJECT}.{timestamp}"),
         };
 
-        // Create and emit the response event
+        // Create and emit response event.
         let e = EventBuilder::new()
             .data(EventData::Json(data))
             .subject(subject.clone())
@@ -199,37 +162,15 @@ impl flowgen_core::task::runner::Runner for JobCreator {
     type Error = Error;
     type EventHandler = EventHandler;
 
-    /// Main execution loop for the job creator processor.
-    ///
-    /// This method implements the flowgen_core Runner trait and provides the
-    /// main execution logic for the processor. It:
-    /// 1. Sets up an HTTPS-only HTTP client for security
-    /// 2. Continuously listens for incoming events
-    /// 3. Processes events that match the expected task ID
-    /// 4. Spawns asynchronous handlers for each job creation request
-    ///
-    /// The method uses task ID filtering to ensure that only events intended
-    /// for this specific processor instance are handled, enabling proper
-    /// pipeline orchestration in multi-step workflows.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if the processor shuts down cleanly, or an `Error` if
-    /// critical initialization or processing failures occur.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Reqwest` error if the HTTP client cannot be initialized.
-    /// Individual event processing errors are logged but don't terminate the processor.
+    /// Initializes HTTPS client and creates event handler.
     async fn init(&self) -> Result<EventHandler, Error> {
-        // Initialize secure HTTP client (HTTPS only for security)
+        // Initialize secure HTTP client (HTTPS only).
         let client = reqwest::ClientBuilder::new()
             .https_only(true)
             .build()
             .map_err(|e| Error::Reqwest { source: e })?;
         let client = Arc::new(client);
 
-        // Create handler for this specific job creation request
         let event_handler = EventHandler {
             config: Arc::clone(&self.config),
             current_task_id: self.current_task_id,
@@ -239,6 +180,7 @@ impl flowgen_core::task::runner::Runner for JobCreator {
         Ok(event_handler)
     }
 
+    /// Main execution loop: listen for events, filter by task ID, spawn handlers.
     async fn run(mut self) -> Result<(), Self::Error> {
         // Initialize runner task.
         let event_handler = match self.init().await {
@@ -270,25 +212,17 @@ impl flowgen_core::task::runner::Runner for JobCreator {
     }
 }
 
-/// Builder pattern implementation for constructing JobCreator instances.
-/// This builder ensures that all required components are provided and properly
-/// configured before creating a JobCreator instance.
+/// Builder for constructing JobCreator instances.
 #[derive(Default)]
 pub struct ProcessorBuilder {
-    /// Job configuration (required)
     config: Option<Arc<super::config::JobCreator>>,
-    /// Event sender channel (required)
     tx: Option<Sender<Event>>,
-    /// Event receiver channel (required)
     rx: Option<Receiver<Event>>,
-    /// Task identifier for event correlation (defaults to 0)
     current_task_id: usize,
 }
 
 impl ProcessorBuilder {
-    /// Creates a new ProcessorBuilder with default values.
-    ///
-    /// All optional fields are initialized to None, and current_task_id is set to 0.
+    /// Creates a new ProcessorBuilder with defaults.
     pub fn new() -> ProcessorBuilder {
         ProcessorBuilder {
             ..Default::default()
@@ -296,56 +230,30 @@ impl ProcessorBuilder {
     }
 
     /// Sets the job configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Shared configuration containing job parameters, credentials, and operation details
     pub fn config(mut self, config: Arc<super::config::JobCreator>) -> Self {
         self.config = Some(config);
         self
     }
 
     /// Sets the event receiver channel.
-    ///
-    /// # Arguments
-    ///
-    /// * `receiver` - Broadcast receiver for incoming trigger events
     pub fn receiver(mut self, receiver: Receiver<Event>) -> Self {
         self.rx = Some(receiver);
         self
     }
 
     /// Sets the event sender channel.
-    ///
-    /// # Arguments
-    ///
-    /// * `sender` - Broadcast sender for emitting processed events
     pub fn sender(mut self, sender: Sender<Event>) -> Self {
         self.tx = Some(sender);
         self
     }
 
-    /// Sets the task identifier for event correlation.
-    ///
-    /// # Arguments
-    ///
-    /// * `current_task_id` - Unique identifier for tracking this processor's events
+    /// Sets the task identifier.
     pub fn current_task_id(mut self, current_task_id: usize) -> Self {
         self.current_task_id = current_task_id;
         self
     }
 
-    /// Builds the JobCreator instance after validating required fields.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(JobCreator)` if all required fields are provided, or an `Error`
-    /// indicating which required field is missing.
-    ///
-    /// # Errors
-    ///
-    /// Returns `MissingRequiredAttribute` error if any of the required fields
-    /// (config, receiver, sender) are not provided.
+    /// Builds JobCreator after validating required fields.
     pub async fn build(self) -> Result<JobCreator, Error> {
         Ok(JobCreator {
             config: self
@@ -568,7 +476,6 @@ mod tests {
             external_id_field_name: None,
         });
 
-        // Test method chaining
         let result = ProcessorBuilder::new()
             .config(config)
             .sender(tx)
@@ -685,11 +592,9 @@ mod tests {
 
     #[test]
     fn test_error_from_conversions() {
-        // Test that Error implements From for various source errors
         let service_err = Error::MissingRequiredAttribute("test".to_string());
         let _: Error = service_err;
 
-        // These conversions should compile
         fn _test_conversions() {
             let _: Error = Error::MissingRequiredAttribute("x".to_string());
         }
@@ -715,7 +620,6 @@ mod tests {
             super::super::config::Operation::Upsert,
         ];
 
-        // Serialize all operations and verify they're distinct
         let serialized: Vec<String> = ops
             .iter()
             .map(|op| serde_json::to_string(op).unwrap())
@@ -760,7 +664,6 @@ mod tests {
 
     #[test]
     fn test_uri_path_version() {
-        // Verify the API version is properly formatted
         assert!(DEFAULT_URI_PATH.contains("v61.0"));
         assert!(DEFAULT_URI_PATH.starts_with("/services/data/"));
         assert!(DEFAULT_URI_PATH.ends_with("/jobs/query"));
@@ -768,7 +671,6 @@ mod tests {
 
     #[test]
     fn test_message_subject_format() {
-        // Verify the message subject follows expected naming convention
         assert_eq!(DEFAULT_MESSAGE_SUBJECT, "bulkapicreate");
         assert!(!DEFAULT_MESSAGE_SUBJECT.contains(" "));
         assert!(!DEFAULT_MESSAGE_SUBJECT.contains("."));
@@ -793,7 +695,6 @@ mod tests {
             external_id_field_name: None,
         });
 
-        // Build in different orders
         let result1 = ProcessorBuilder::new()
             .config(Arc::clone(&config))
             .sender(tx)

@@ -16,8 +16,7 @@ use std::path::PathBuf;
 ///  }
 /// ```
 ///
-///
-/// /// Processor for creating salesforce account query all job.
+/// Processor for creating salesforce account query all job.
 /// ```json
 /// {
 ///    "salesforce_bulkapi_job_creator": {
@@ -32,207 +31,125 @@ use std::path::PathBuf;
 ///  }
 /// ```
 /// Configuration for retrieving existing Salesforce bulk jobs.
-///
-/// This struct is used to configure a job retrieval operation that can fetch
-/// information about previously created Salesforce bulk jobs, including their
-/// status, results, and metadata.
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct JobRetriever {
-    /// Optional human-readable label for identifying this job retriever configuration.
-    ///
-    /// Useful for distinguishing between multiple job retrieval configurations
-    /// in logging, monitoring, and configuration management contexts.
+    /// Human-readable label for this job retriever.
     pub label: Option<String>,
 
-    /// Reference to credential store entry containing Salesforce authentication details.
-    ///
-    /// This should be a key or path to securely stored Salesforce credentials
-    /// (username, password, security token, or OAuth tokens) required for
-    /// authenticating with the Salesforce Bulk API.
+    /// Path to Salesforce authentication credentials.
     pub credentials_path: PathBuf,
 }
 
 /// Configuration for creating new Salesforce bulk jobs.
-///
-/// This struct encapsulates all the parameters needed to create and configure
-/// a Salesforce Bulk API job for various operations like querying, inserting,
-/// updating, or deleting records in bulk.
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct JobCreator {
-    /// The unique name / identifier of the task.
+    /// Unique task identifier.
     pub name: String,
-    /// Optional human-readable label for identifying this job creator configuration.
-    ///
-    /// Helpful for distinguishing between different job configurations in logs,
-    /// monitoring dashboards, and configuration management systems.
+
+    /// Human-readable label for this job.
     pub label: Option<String>,
 
-    /// Reference to credential store entry containing Salesforce authentication details.
-    ///
-    /// Points to securely stored Salesforce credentials needed for Bulk API authentication.
-    /// Should not contain actual credentials for security reasons.
+    /// Path to Salesforce authentication credentials.
     pub credentials_path: PathBuf,
 
-    /// SOQL query string for query and queryAll operations.
-    ///
-    /// Required for query-based operations. Should contain a valid SOQL query
-    /// that will be executed against the Salesforce database.
-    /// Example: "SELECT Id, Name FROM Account WHERE CreatedDate = TODAY"
+    /// SOQL query for query/queryAll operations.
     pub query: Option<String>,
 
-    /// Salesforce object API name for data manipulation operations.
-    ///
-    /// Required for insert, update, delete, and upsert operations.
-    /// Specifies the Salesforce object type to operate on.
-    /// Examples: "Account", "Contact", "Custom_Object__c"
+    /// Salesforce object API name (e.g., "Account", "Contact").
     pub object: Option<String>,
 
-    /// The type of bulk operation to perform.
-    ///
-    /// Determines whether this job will query data, insert records,
-    /// update existing records, etc. Each operation has different
-    /// requirements for other configuration fields.
+    /// Type of bulk operation to perform.
     pub operation: Operation,
 
-    /// Output file format for bulk job results.
-    ///
-    /// Specifies how the job results should be formatted when retrieved.
-    /// Currently only CSV format is supported by most Salesforce bulk operations.
+    /// Output file format (currently only CSV supported).
     pub content_type: Option<ContentType>,
 
-    /// Column separator character for CSV output files.
-    ///
-    /// Defines how columns are separated in the result CSV files.
-    /// Different delimiters may be needed for compatibility with
-    /// downstream systems or to handle data containing commas.
+    /// Column separator for CSV output.
     pub column_delimiter: Option<ColumnDelimiter>,
 
-    /// Line termination style for output files.
-    ///
-    /// Specifies whether to use Unix-style (LF) or Windows-style (CRLF)
-    /// line endings in the output files. Important for cross-platform
-    /// compatibility of generated files.
+    /// Line termination style (LF or CRLF).
     pub line_ending: Option<LineEnding>,
 
-    /// The ID of an assignment rule to run for Case or Lead objects.
-    ///
-    /// When creating or updating Case or Lead records, this field can specify
-    /// an assignment rule to automatically assign the records to appropriate
-    /// users or queues. The rule can be active or inactive.
-    ///
-    /// The ID can be retrieved using Salesforce SOAP or REST APIs to query
-    /// the AssignmentRule object.
+    /// Assignment rule ID for Case or Lead objects.
     pub assignment_rule_id: Option<String>,
 
-    /// The external ID field name for upsert operations.
-    ///
-    /// Required only for upsert operations. Specifies which field should be used
-    /// as the external identifier to determine whether to insert a new record
-    /// or update an existing one.
-    ///
-    /// Example: "External_ID__c" or "Email" for Contact objects
+    /// External ID field name for upsert operations.
     pub external_id_field_name: Option<String>,
 }
 
-/// Enumeration of supported Salesforce Bulk API operations.
-///
-/// Each operation type has different requirements and behaviors:
-/// - Query operations retrieve data and require a SOQL query
-/// - Data manipulation operations require an object name and appropriate data
+/// Salesforce Bulk API operation types.
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
 pub enum Operation {
-    /// Standard query operation that returns only non-deleted records.
-    /// Requires a valid SOQL query in the `query` field. Results include
-    /// only records that are currently active (not in the recycle bin).
+    /// Query active records only.
     #[default]
     #[serde(rename = "query")]
     Query,
 
-    /// Query all operation that includes deleted and archived records.
-    /// Similar to Query but also returns soft-deleted records from the
-    /// recycle bin. Useful for data archival and complete data exports.
+    /// Query including deleted/archived records.
     #[serde(rename = "queryAll")]
     QueryAll,
 
-    /// Insert operation for creating new records.
+    /// Create new records.
     #[serde(rename = "insert")]
     Insert,
 
-    /// Soft delete operation that moves records to the recycle bin.
+    /// Soft delete (move to recycle bin).
     #[serde(rename = "delete")]
     Delete,
 
-    /// Hard delete operation that permanently removes records.
+    /// Permanently delete records.
     #[serde(rename = "hardDelete")]
     HardDelete,
 
-    /// Update operation for modifying existing records.
+    /// Update existing records.
     #[serde(rename = "update")]
     Update,
 
-    /// Upsert operation that inserts or updates based on external ID.
+    /// Insert or update based on external ID.
     #[serde(rename = "upsert")]
     Upsert,
 }
 
-/// Supported content types for bulk job output files.
+/// Output file content types.
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
 pub enum ContentType {
-    /// Comma-Separated Values format.
     #[default]
     #[serde(rename = "CSV")]
-    Csv, // Currently only supports CSV.
+    Csv,
 }
 
-/// Available column delimiter options for CSV output formatting.
+/// CSV column delimiters.
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
 pub enum ColumnDelimiter {
-    /// Standard comma delimiter (most common CSV format).
     #[default]
     #[serde(rename = "COMMA")]
     Comma,
 
-    /// Tab character as delimiter.
     #[serde(rename = "TAB")]
     Tab,
 
-    /// Semicolon delimiter.
     #[serde(rename = "SEMICOLON")]
     Semicolon,
 
-    /// Pipe character (|) as delimiter.
     #[serde(rename = "PIPE")]
     Pipe,
 
-    /// Caret character (^) as delimiter.
-    ///
-    /// Rarely appears in business data, providing reliable field separation.
-    /// Sometimes used in legacy systems or specialized data formats.
     #[serde(rename = "CARET")]
     Caret,
 
-    /// Backquote character (`) as delimiter.
-    /// Another rare character that can serve as a reliable delimiter
-    /// when standard options might conflict with data content.
     #[serde(rename = "BACKQUOTE")]
     Backquote,
 }
 
-/// Line ending styles for output file formatting.
-/// Different operating systems use different conventions for line endings.
-/// Choosing the correct style ensures proper file handling across platforms.
+/// Line ending styles for cross-platform compatibility.
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
 pub enum LineEnding {
-    /// Unix/Linux style line ending (Line Feed only).
-    /// Single LF character (\n). Standard on Unix-like systems including
-    /// Linux and macOS. More compact than CRLF.
+    /// Unix/Linux style (\n).
     #[default]
     #[serde(rename = "LF")]
     Lf,
 
-    /// Windows style line ending (Carriage Return + Line Feed).
-    /// Two-character sequence (\r\n). Required for proper display
-    /// in Windows text editors and some legacy systems.
+    /// Windows style (\r\n).
     #[serde(rename = "CRLF")]
     Crlf,
 }
