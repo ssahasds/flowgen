@@ -192,140 +192,137 @@ impl EventHandler {
                 .map_err(|e| Error::ParseSchema { source: e })?;
 
             // Process the deserialized Avro record
-            match value {
-                Value::Record(fields) => {
-                    // Extract the ResultUrl field which contains the download URL for CSV results
-                    match fields.iter().find(|(name, _)| name == "ResultUrl") {
-                        Some((_, Value::Union(_, inner_value))) => {
-                            match &**inner_value {
-                                Value::String(result_url) => {
-                                    let instance_url = sfdc_client
-                                        .instance_url
-                                        .ok_or_else(Error::NoSalesforceInstanceURL)?;
+            if let Value::Record(fields) = value {
+                // Extract the ResultUrl field which contains the download URL for CSV results
+                match fields.iter().find(|(name, _)| name == "ResultUrl") {
+                    Some((_, Value::Union(_, inner_value))) => {
+                        match &**inner_value {
+                            Value::String(result_url) => {
+                                let instance_url = sfdc_client
+                                    .instance_url
+                                    .ok_or_else(Error::NoSalesforceInstanceURL)?;
 
-                                    // Create HTTP client request to download CSV results
-                                    let mut client =
-                                        self.client.get(format!("{}{}", instance_url, result_url));
+                                // Create HTTP client request to download CSV results
+                                let mut client =
+                                    self.client.get(format!("{}{}", instance_url, result_url));
 
-                                    let token_result = sfdc_client
-                                        .token_result
-                                        .ok_or_else(Error::NoSalesforceAuthToken)?;
+                                let token_result = sfdc_client
+                                    .token_result
+                                    .ok_or_else(Error::NoSalesforceAuthToken)?;
 
-                                    client =
-                                        client.bearer_auth(token_result.access_token().secret());
+                                client =
+                                    client.bearer_auth(token_result.access_token().secret());
 
-                                    // Download the CSV result data
-                                    let resp = client
-                                        .send()
-                                        .await
-                                        .map_err(|e| Error::Reqwest { source: e })?
-                                        .bytes()
-                                        .await
-                                        .map_err(|e| Error::Reqwest { source: e })?;
+                                // Download the CSV result data
+                                let resp = client
+                                    .send()
+                                    .await
+                                    .map_err(|e| Error::Reqwest { source: e })?
+                                    .bytes()
+                                    .await
+                                    .map_err(|e| Error::Reqwest { source: e })?;
 
-                                    // Write CSV data to temporary file for Arrow processing
-                                    // TODO: Consider using in-memory processing or configurable output paths
-                                    let file_path = "output.csv";
-                                    let mut file = File::create(file_path).unwrap();
-                                    file.write_all(&resp).map_err(|e| Error::IO { source: e })?;
+                                // Write CSV data to temporary file for Arrow processing
+                                // TODO: Consider using in-memory processing or configurable output paths
+                                let file_path = "output.csv";
+                                let mut file = File::create(file_path).unwrap();
+                                file.write_all(&resp).map_err(|e| Error::IO { source: e })?;
 
-                                    // Reopen file for reading and schema inference
-                                    let mut file = File::open(file_path)
-                                        .map_err(|e| Error::IO { source: e })?;
+                                // Reopen file for reading and schema inference
+                                let mut file = File::open(file_path)
+                                    .map_err(|e| Error::IO { source: e })?;
 
-                                    // Use Arrow to infer CSV schema from the first 100 rows
-                                    let (schema, _) = Format::default()
+                                // Use Arrow to infer CSV schema from the first 100 rows
+                                let (schema, _) = Format::default()
+                                    .with_header(true)
+                                    .infer_schema(&file, Some(100))
+                                    .map_err(|e| Error::Arrow { source: e })?;
+
+                                // Reset file pointer to beginning for full read
+                                file.rewind().map_err(|e| Error::IO { source: e })?;
+
+                                // Create Arrow CSV reader with inferred schema
+                                let csv =
+                                    arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
                                         .with_header(true)
-                                        .infer_schema(&file, Some(100))
+                                        .with_batch_size(100)
+                                        .build(&file)
                                         .map_err(|e| Error::Arrow { source: e })?;
 
-                                    // Reset file pointer to beginning for full read
-                                    file.rewind().map_err(|e| Error::IO { source: e })?;
+                                // Extract JobIdentifier for metadata retrieval
+                                match fields.iter().find(|(name, _)| name == "JobIdentifier") {
+                                    Some((_, Value::String(job_id))) => {
+                                        // Create new client for job metadata retrieval
+                                        let sfdc_client = crate::client::Builder::new()
+                                            .credentials_path(config.credentials_path.clone())
+                                            .build()?
+                                            .connect()
+                                            .await?;
 
-                                    // Create Arrow CSV reader with inferred schema
-                                    let csv =
-                                        arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
-                                            .with_header(true)
-                                            .with_batch_size(100)
-                                            .build(&file)
-                                            .map_err(|e| Error::Arrow { source: e })?;
+                                        let instance_url = sfdc_client
+                                            .instance_url
+                                            .ok_or_else(Error::NoSalesforceInstanceURL)?;
 
-                                    // Extract JobIdentifier for metadata retrieval
-                                    match fields.iter().find(|(name, _)| name == "JobIdentifier") {
-                                        Some((_, Value::String(job_id))) => {
-                                            // Create new client for job metadata retrieval
-                                            let sfdc_client = crate::client::Builder::new()
-                                                .credentials_path(config.credentials_path.clone())
-                                                .build()?
-                                                .connect()
-                                                .await?;
+                                        // Request job metadata to get object type
+                                        let mut client = self.client.get(format!(
+                                            "{}{}{}",
+                                            instance_url, DEFAULT_JOB_METADATA_URI, job_id
+                                        ));
 
-                                            let instance_url = sfdc_client
-                                                .instance_url
-                                                .ok_or_else(Error::NoSalesforceInstanceURL)?;
+                                        let token_result = sfdc_client
+                                            .token_result
+                                            .ok_or_else(Error::NoSalesforceAuthToken)?;
 
-                                            // Request job metadata to get object type
-                                            let mut client = self.client.get(format!(
-                                                "{}{}{}",
-                                                instance_url, DEFAULT_JOB_METADATA_URI, job_id
-                                            ));
+                                        client = client
+                                            .bearer_auth(token_result.access_token().secret());
 
-                                            let token_result = sfdc_client
-                                                .token_result
-                                                .ok_or_else(Error::NoSalesforceAuthToken)?;
+                                        // Retrieve job metadata
+                                        let resp = client
+                                            .send()
+                                            .await
+                                            .map_err(|e| Error::Reqwest { source: e })?
+                                            .text()
+                                            .await
+                                            .map_err(|e| Error::Reqwest { source: e })?;
 
-                                            client = client
-                                                .bearer_auth(token_result.access_token().secret());
+                                        let job_metadata: JobResponse =
+                                            serde_json::from_str(&resp)
+                                                .map_err(|e| Error::SerdeJson { source: e })?;
 
-                                            // Retrieve job metadata
-                                            let resp = client
-                                                .send()
-                                                .await
-                                                .map_err(|e| Error::Reqwest { source: e })?
-                                                .text()
-                                                .await
-                                                .map_err(|e| Error::Reqwest { source: e })?;
+                                        let subject = generate_subject(
+                                            Some(job_metadata.object.to_lowercase().as_str()),
+                                            DEFAULT_MESSAGE_SUBJECT,
+                                            SubjectSuffix::Timestamp,
+                                        );
 
-                                            let job_metadata: JobResponse =
-                                                serde_json::from_str(&resp)
-                                                    .map_err(|e| Error::SerdeJson { source: e })?;
-
-                                            let subject = generate_subject(
-                                                Some(job_metadata.object.to_lowercase().as_str()),
-                                                DEFAULT_MESSAGE_SUBJECT,
-                                                SubjectSuffix::Timestamp,
-                                            );
-
-                                            // Process each Arrow record batch and emit as separate events
-                                            for data in csv {
-                                                // Create event with Arrow record batch data
-                                                let e = EventBuilder::new()
-                                                    .data(EventData::ArrowRecordBatch(
-                                                        data.map_err(|e| Error::Arrow {
-                                                            source: e,
-                                                        })?,
-                                                    ))
-                                                    .subject(subject.clone())
-                                                    .current_task_id(self.current_task_id)
-                                                    .build()?;
-                                                self.tx.send_with_logging(e).map_err(|e| {
-                                                    Error::SendMessage { source: e }
-                                                })?;
-                                            }
+                                        // Process each Arrow record batch and emit as separate events
+                                        for data in csv {
+                                            // Create event with Arrow record batch data
+                                            let e = EventBuilder::new()
+                                                .data(EventData::ArrowRecordBatch(
+                                                    data.map_err(|e| Error::Arrow {
+                                                        source: e,
+                                                    })?,
+                                                ))
+                                                .subject(subject.clone())
+                                                .current_task_id(self.current_task_id)
+                                                .build()?;
+                                            self.tx.send_with_logging(e).map_err(|e| {
+                                                Error::SendMessage { source: e }
+                                            })?;
                                         }
-                                        Some((_, _)) => {}
-                                        None => {}
                                     }
+                                    Some((_, _)) => {}
+                                    None => {}
                                 }
-                                Value::Null => {}
-                                _ => {}
                             }
+                            Value::Null => {}
+                            _ => {}
                         }
-                        Some((_, _)) => {}
-                        None => {}
                     }
+                    Some((_, _)) => {}
+                    None => {}
                 }
-                _ => {}
             }
         } else {
             println!("Not an Avro event");
