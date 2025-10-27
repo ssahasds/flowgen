@@ -19,7 +19,7 @@ pub enum Error {
     #[error("Failed to send event message: {source}")]
     SendMessage {
         #[source]
-        source: tokio::sync::broadcast::error::SendError<Event>,
+        source: Box<tokio::sync::broadcast::error::SendError<Event>>,
     },
     /// Required attribute is missing.
     #[error("Missing required attribute: {}", _0)]
@@ -39,9 +39,12 @@ pub enum Error {
     #[error(transparent)]
     SalesforceAuth(#[from] salesforce_core::client::Error),
 
-    /// Event creation or processing error.
-    #[error(transparent)]
-    Event(#[from] flowgen_core::event::Error),
+    /// Flowgen core event system error.
+    #[error("Event error: {source}")]
+    Event {
+        #[source]
+        source: flowgen_core::event::Error,
+    },
 
     /// Missing or invalid Salesforce access token.
     #[error("missing salesforce access token")]
@@ -160,8 +163,9 @@ impl EventHandler {
         let e = EventBuilder::new()
             .data(EventData::Json(data))
             .subject(subject.clone())
-            .current_task_id(self.current_task_id)
-            .build()?;
+            .task_id(self.current_task_id)
+            .build()
+            .map_err(|e| Error::Event { source: e })?;
         self.tx
             .send_with_logging(e)
             .map_err(|e| Error::SendMessage { source: e })?;
@@ -214,7 +218,7 @@ impl flowgen_core::task::runner::Runner for JobCreator {
         loop {
             match self.rx.recv().await {
                 Ok(event) => {
-                    if event.current_task_id == event_handler.current_task_id.checked_sub(1) {
+                    if Some(event.task_id) == event_handler.current_task_id.checked_sub(1) {
                         let event_handler = Arc::clone(&event_handler);
                         tokio::spawn(
                             async move {

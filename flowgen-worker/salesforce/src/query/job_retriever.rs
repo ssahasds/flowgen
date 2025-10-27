@@ -30,7 +30,7 @@ pub enum Error {
     #[error("Failed to send event message: {source}")]
     SendMessage {
         #[source]
-        source: tokio::sync::broadcast::error::SendError<Event>,
+        source: Box<tokio::sync::broadcast::error::SendError<Event>>,
     },
     /// Required attribute is missing.
     #[error("Missing required attribute: {}", _0)]
@@ -200,9 +200,8 @@ impl EventHandler {
                                 .map_err(|e| Error::SerdeJson { source: e })?;
 
                             let subject = generate_subject(
-                                Some(job_metadata.object.to_lowercase().as_str()),
-                                DEFAULT_MESSAGE_SUBJECT,
-                                SubjectSuffix::Timestamp,
+                                job_metadata.object.to_lowercase().as_str(),
+                                Some(SubjectSuffix::Timestamp),
                             );
 
                             // Process each Arrow record batch and emit as events.
@@ -212,7 +211,7 @@ impl EventHandler {
                                         data.map_err(|e| Error::Arrow { source: e })?,
                                     ))
                                     .subject(subject.clone())
-                                    .current_task_id(self.current_task_id)
+                                    .task_id(self.current_task_id)
                                     .build()?;
                                 self.tx
                                     .send_with_logging(e)

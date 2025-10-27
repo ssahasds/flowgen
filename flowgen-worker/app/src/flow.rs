@@ -641,6 +641,53 @@ async fn spawn_tasks(
                 );
                 background_tasks.push(task);
             }
+
+            TaskType::salesforce_bulkapi_job_creator(config) => {
+                let config = Arc::new(config.to_owned());
+                let rx = tx.subscribe();
+                let tx = tx.clone();
+                let span = tracing::Span::current();
+                let task: JoinHandle<Result<(), Error>> = tokio::spawn(
+                    async move {
+                        flowgen_salesforce::query::job_creator::ProcessorBuilder::new()
+                            .config(config)
+                            .receiver(rx)
+                            .sender(tx)
+                            .current_task_id(i)
+                            .build()
+                            .await?
+                            .run()
+                            .await?;
+                        Ok(())
+                    }
+                    .instrument(span),
+                );
+                background_tasks.push(task);
+            }
+
+            TaskType::salesforce_bulkapi_job_retriever(config) => {
+                let config = Arc::new(config.to_owned());
+                let rx = tx.subscribe();
+                let tx = tx.clone();
+                let span = tracing::Span::current();
+                let task: JoinHandle<Result<(), Error>> = tokio::spawn(
+                    async move {
+                        flowgen_salesforce::query::job_retriever::ProcessorBuilder::new()
+                            .config(config)
+                            .receiver(rx)
+                            .sender(tx)
+                            .current_task_id(i)
+                            .build()
+                            .await?
+                            .run()
+                            .await?;
+                        Ok(())
+                    }
+                    .instrument(span),
+                );
+                background_tasks.push(task);
+            }
+
             TaskType::object_store_reader(config) => {
                 let config = Arc::new(config.to_owned());
                 let rx = tx.subscribe();
@@ -687,7 +734,12 @@ async fn spawn_tasks(
                             .await?
                             .run()
                             .await?;
+                        Ok(())
+                    }
+                    .instrument(span),
+                );
                 background_tasks.push(task);
+            }
         }
     }
 
