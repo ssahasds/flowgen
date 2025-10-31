@@ -38,6 +38,9 @@ pub struct JobRetriever {
 
     /// Path to Salesforce authentication credentials.
     pub credentials_path: PathBuf,
+
+    /// Salesforce Job Type like query, ingest.
+    pub job_type: JobType,
 }
 
 /// Configuration for creating new Salesforce bulk jobs.
@@ -51,6 +54,9 @@ pub struct JobCreator {
 
     /// Path to Salesforce authentication credentials.
     pub credentials_path: PathBuf,
+
+    /// Salesforce Job Type like query, ingest.
+    pub job_type: JobType,
 
     /// SOQL query for query/queryAll operations.
     pub query: Option<String>,
@@ -75,6 +81,28 @@ pub struct JobCreator {
 
     /// External ID field name for upsert operations.
     pub external_id_field_name: Option<String>,
+}
+
+/// Salesforce Bulk API Job types.
+#[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
+pub enum JobType {
+    /// Query Job type.
+    #[default]
+    #[serde(rename = "query")]
+    Query,
+
+    /// Ingest Job type.
+    #[serde(rename = "ingest")]
+    Ingest,
+}
+
+impl JobType {
+    pub fn as_str(&self) -> &str {
+        match self {
+            JobType::Query => "query",
+            JobType::Ingest => "ingest",
+        }
+    }
 }
 
 /// Salesforce Bulk API operation types.
@@ -172,6 +200,7 @@ mod tests {
         let retriever = JobRetriever {
             label: Some("test_retriever".to_string()),
             credentials_path: PathBuf::from("/path/to/creds.json"),
+            job_type: JobType::Query,
         };
 
         assert_eq!(retriever.label, Some("test_retriever".to_string()));
@@ -186,6 +215,7 @@ mod tests {
         let retriever = JobRetriever {
             label: Some("test_label".to_string()),
             credentials_path: PathBuf::from("/test/path.json"),
+            job_type: JobType::Query,
         };
 
         let json = serde_json::to_string(&retriever).unwrap();
@@ -217,6 +247,7 @@ mod tests {
             label: Some("Account Query".to_string()),
             credentials_path: PathBuf::from("/creds.json"),
             query: Some("SELECT Id, Name FROM Account".to_string()),
+            job_type: JobType::Query,
             object: None,
             operation: Operation::Query,
             content_type: Some(ContentType::Csv),
@@ -238,6 +269,7 @@ mod tests {
             label: Some("Insert Contacts".to_string()),
             credentials_path: PathBuf::from("/creds.json"),
             query: None,
+            job_type: JobType::Query,
             object: Some("Contact".to_string()),
             operation: Operation::Insert,
             content_type: Some(ContentType::Csv),
@@ -259,6 +291,7 @@ mod tests {
             label: Some("Upsert Accounts".to_string()),
             credentials_path: PathBuf::from("/creds.json"),
             query: None,
+            job_type: JobType::Query,
             object: Some("Account".to_string()),
             operation: Operation::Upsert,
             content_type: Some(ContentType::Csv),
@@ -460,6 +493,7 @@ mod tests {
             label: Some("Full Job Config".to_string()),
             credentials_path: PathBuf::from("/path/to/creds.json"),
             query: Some("SELECT Id FROM Account".to_string()),
+            job_type: JobType::Query,
             object: None,
             operation: Operation::Query,
             content_type: Some(ContentType::Csv),
@@ -482,6 +516,7 @@ mod tests {
             label: Some("Clone Test".to_string()),
             credentials_path: PathBuf::from("/test.json"),
             query: Some("SELECT Id FROM Contact".to_string()),
+            job_type: JobType::Query,
             object: None,
             operation: Operation::QueryAll,
             content_type: Some(ContentType::Csv),
@@ -500,6 +535,7 @@ mod tests {
         let retriever1 = JobRetriever {
             label: Some("clone_test".to_string()),
             credentials_path: PathBuf::from("/test.json"),
+            job_type: JobType::Query,
         };
 
         let retriever2 = retriever1.clone();
@@ -530,6 +566,7 @@ mod tests {
             label: Some("Case Assignment".to_string()),
             credentials_path: PathBuf::from("/creds.json"),
             query: None,
+            job_type: JobType::Query,
             object: Some("Case".to_string()),
             operation: Operation::Insert,
             content_type: Some(ContentType::Csv),

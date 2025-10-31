@@ -8,9 +8,9 @@ use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{error, Instrument};
 
 /// Message subject prefix for bulk API create operations.
-const DEFAULT_MESSAGE_SUBJECT: &str = "salesforce_query_job_create";
+const DEFAULT_MESSAGE_SUBJECT: &str = "salesforce_job_create";
 /// Salesforce Bulk API endpoint for query jobs (API v61.0).
-const DEFAULT_URI_PATH: &str = "/services/data/v61.0/jobs/query";
+const DEFAULT_URI_PATH: &str = "/services/data/v61.0/jobs/";
 
 /// Errors for Salesforce bulk job creation operations.
 #[derive(thiserror::Error, Debug)]
@@ -135,7 +135,9 @@ impl EventHandler {
             .ok_or_else(Error::NoSalesforceInstanceURL)?;
 
         // Configure HTTP client with endpoint and auth.
-        let mut client = self.client.post(instance_url + DEFAULT_URI_PATH);
+        let mut client = self
+            .client
+            .post(instance_url + DEFAULT_URI_PATH + self.config.job_type.as_str());
 
         client = client.bearer_auth(token_result.access_token().secret());
         client = client.json(&payload);
@@ -408,6 +410,7 @@ mod tests {
             query: Some("SELECT Id FROM Account".to_string()),
             object: None,
             operation: super::super::config::Operation::Query,
+            job_type: super::super::config::JobType::Query,
             content_type: Some(super::super::config::ContentType::Csv),
             column_delimiter: Some(super::super::config::ColumnDelimiter::Comma),
             line_ending: Some(super::super::config::LineEnding::Lf),
@@ -461,6 +464,7 @@ mod tests {
             label: None,
             credentials_path: PathBuf::from("/test.json"),
             query: Some("SELECT Id FROM Account".to_string()),
+            job_type: super::super::config::JobType::Query,
             object: None,
             operation: super::super::config::Operation::Query,
             content_type: None,
@@ -492,6 +496,7 @@ mod tests {
             label: None,
             credentials_path: PathBuf::from("/test.json"),
             query: Some("SELECT Id FROM Account".to_string()),
+            job_type: super::super::config::JobType::Query,
             object: None,
             operation: super::super::config::Operation::Query,
             content_type: None,
@@ -523,6 +528,7 @@ mod tests {
             label: Some("test".to_string()),
             credentials_path: PathBuf::from("/test.json"),
             query: Some("SELECT Id FROM Account".to_string()),
+            job_type: super::super::config::JobType::Query,
             object: None,
             operation: super::super::config::Operation::Query,
             content_type: Some(super::super::config::ContentType::Csv),
@@ -555,6 +561,7 @@ mod tests {
             label: Some("chained".to_string()),
             credentials_path: PathBuf::from("/chain.json"),
             query: Some("SELECT Id FROM Contact".to_string()),
+            job_type: super::super::config::JobType::Query,
             object: None,
             operation: super::super::config::Operation::QueryAll,
             content_type: Some(super::super::config::ContentType::Csv),
@@ -704,6 +711,7 @@ mod tests {
             label: None,
             credentials_path: PathBuf::from("/test.json"),
             query: Some("SELECT Id FROM Account".to_string()),
+            job_type: super::super::config::JobType::Query,
             object: None,
             operation: super::super::config::Operation::Query,
             content_type: None,
@@ -749,6 +757,7 @@ mod tests {
             label: None,
             credentials_path: PathBuf::from("/test.json"),
             query: Some("SELECT Id FROM Account".to_string()),
+            job_type: super::super::config::JobType::Query,
             object: None,
             operation: super::super::config::Operation::Query,
             content_type: None,

@@ -15,7 +15,7 @@ use tracing::{error, Instrument};
 /// Message subject prefix for bulk API retrieve operations.
 const DEFAULT_MESSAGE_SUBJECT: &str = "salesforce_query_job_retrieve";
 /// Salesforce Bulk API endpoint for job metadata (API v61.0).
-const DEFAULT_JOB_METADATA_URI: &str = "/services/data/v61.0/jobs/query/";
+const DEFAULT_JOB_METADATA_URI: &str = "/services/data/v61.0/jobs/";
 
 /// Errors for Salesforce bulk job retrieval operations.
 #[derive(thiserror::Error, Debug)]
@@ -106,6 +106,8 @@ pub struct EventHandler {
     sfdc_client: salesforce_core::client::Client,
     /// Task type for event categorization and logging.
     task_type: &'static str,
+    /// Job configuration and authentication details.
+    config: Arc<super::config::JobRetriever>,
 }
 
 impl EventHandler {
@@ -185,8 +187,12 @@ impl EventHandler {
                         {
                             // Request job metadata to get object type.
                             let mut client = self.client.get(format!(
-                                "{}{}{}",
-                                instance_url, DEFAULT_JOB_METADATA_URI, job_id
+                                "{}{}{}{}{}",
+                                instance_url,
+                                DEFAULT_JOB_METADATA_URI,
+                                self.config.job_type.as_str(),
+                                "/",
+                                job_id
                             ));
 
                             client = client.bearer_auth(token_result.access_token().secret());
@@ -268,6 +274,7 @@ impl flowgen_core::task::runner::Runner for JobRetriever {
             client,
             sfdc_client,
             task_type: self.task_type,
+            config: self.config.clone(),
         };
         Ok(event_handler)
     }
@@ -441,6 +448,7 @@ mod tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: Some("test_retriever".to_string()),
             credentials_path: PathBuf::from("/test/creds.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let builder = ProcessorBuilder::new().config(Arc::clone(&config));
@@ -487,6 +495,7 @@ mod tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: Some("test".to_string()),
             credentials_path: PathBuf::from("/test.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let builder = ProcessorBuilder::new().config(config).sender(tx);
@@ -509,6 +518,7 @@ mod tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: Some("test".to_string()),
             credentials_path: PathBuf::from("/test.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let builder = ProcessorBuilder::new().config(config).receiver(rx);
@@ -531,6 +541,7 @@ mod tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: Some("retriever_test".to_string()),
             credentials_path: PathBuf::from("/test/creds.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let result = ProcessorBuilder::new()
@@ -554,6 +565,7 @@ mod tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: Some("chain_test".to_string()),
             credentials_path: PathBuf::from("/chain.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let result = ProcessorBuilder::new()
@@ -576,6 +588,7 @@ mod tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: Some("order_test".to_string()),
             credentials_path: PathBuf::from("/test.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let result1 = ProcessorBuilder::new()
@@ -607,6 +620,7 @@ mod tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: Some("struct_test".to_string()),
             credentials_path: PathBuf::from("/test.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let processor = JobRetriever {
@@ -752,6 +766,7 @@ mod tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: None,
             credentials_path: PathBuf::from("/test.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let result = ProcessorBuilder::new()
@@ -775,6 +790,7 @@ mod tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: Some("large_id".to_string()),
             credentials_path: PathBuf::from("/test.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let result = ProcessorBuilder::new()
@@ -809,11 +825,13 @@ mod tests {
         let config1 = Arc::new(super::super::config::JobRetriever {
             label: Some("builder1".to_string()),
             credentials_path: PathBuf::from("/test1.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let config2 = Arc::new(super::super::config::JobRetriever {
             label: Some("builder2".to_string()),
             credentials_path: PathBuf::from("/test2.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let result1 = ProcessorBuilder::new()
@@ -860,6 +878,7 @@ mod integration_tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: Some("integration_test".to_string()),
             credentials_path: PathBuf::from("/tmp/integration_creds.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         let processor = ProcessorBuilder::new()
@@ -884,6 +903,7 @@ mod integration_tests {
         let config = Arc::new(super::super::config::JobRetriever {
             label: Some("reuse_test".to_string()),
             credentials_path: PathBuf::from("/tmp/reuse_creds.json"),
+            job_type: super::super::config::JobType::Query,
         });
 
         // First build

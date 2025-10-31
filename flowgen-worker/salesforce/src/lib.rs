@@ -15,7 +15,7 @@ pub mod pubsub {
     pub mod subscriber;
 }
 
-pub mod query {
+pub mod bulkapi {
     /// Configuration structures for Salesforce Bulk API Job creator and retriever.
     pub mod config;
     /// Salesforce implementation for creating Bulk API Job.
