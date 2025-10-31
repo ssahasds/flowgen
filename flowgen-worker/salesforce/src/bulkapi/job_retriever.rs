@@ -810,7 +810,7 @@ mod tests {
     #[test]
     fn test_job_metadata_uri_construction() {
         let job_id = "750xx0000000001AAA";
-        let full_uri = format!("{}{}{}", DEFAULT_JOB_METADATA_URI,"query/", job_id);
+        let full_uri = format!("{}{}{}", DEFAULT_JOB_METADATA_URI, "query/", job_id);
         assert_eq!(
             full_uri,
             "/services/data/v61.0/jobs/query/750xx0000000001AAA"

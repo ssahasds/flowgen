@@ -598,10 +598,7 @@ mod tests {
             None => format!("{}.{}", DEFAULT_MESSAGE_SUBJECT, timestamp),
         };
 
-        assert_eq!(
-            subject,
-            "salesforce_job_create.test_label.1234567890123456"
-        );
+        assert_eq!(subject, "salesforce_job_create.test_label.1234567890123456");
     }
 
     #[test]
