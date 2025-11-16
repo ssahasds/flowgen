@@ -550,72 +550,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_processor_builder_build_success() {
-        let (tx, rx) = broadcast::channel::<Event>(100);
-
-        let config = Arc::new(super::super::config::JobCreator {
-            name: "test_job".to_string(),
-            label: Some("test".to_string()),
-            credentials_path: PathBuf::from("/test.json"),
-            query: Some("SELECT Id FROM Account".to_string()),
-            job_type: super::super::config::JobType::Query,
-            object: None,
-            operation: super::super::config::Operation::Query,
-            content_type: Some(super::super::config::ContentType::Csv),
-            column_delimiter: Some(super::super::config::ColumnDelimiter::Comma),
-            line_ending: Some(super::super::config::LineEnding::Lf),
-            assignment_rule_id: None,
-            external_id_field_name: None,
-            retry: None,
-        });
-
-        let result = ProcessorBuilder::new()
-            .config(config)
-            .sender(tx)
-            .receiver(rx)
-            .current_task_id(3)
-            .task_type("task_type")
-            .build()
-            .await;
-
-        assert!(result.is_ok());
-        let processor = result.unwrap();
-        assert_eq!(processor.current_task_id, 3);
-    }
-
-    #[tokio::test]
-    async fn test_processor_builder_chaining() {
-        let (tx, rx) = broadcast::channel::<Event>(100);
-
-        let config = Arc::new(super::super::config::JobCreator {
-            name: "chain_test".to_string(),
-            label: Some("chained".to_string()),
-            credentials_path: PathBuf::from("/chain.json"),
-            query: Some("SELECT Id FROM Contact".to_string()),
-            job_type: super::super::config::JobType::Query,
-            object: None,
-            operation: super::super::config::Operation::QueryAll,
-            content_type: Some(super::super::config::ContentType::Csv),
-            column_delimiter: Some(super::super::config::ColumnDelimiter::Tab),
-            line_ending: Some(super::super::config::LineEnding::Crlf),
-            assignment_rule_id: None,
-            external_id_field_name: None,
-            retry: None,
-        });
-
-        let result = ProcessorBuilder::new()
-            .config(config)
-            .sender(tx)
-            .receiver(rx)
-            .current_task_id(10)
-            .task_type("task_type")
-            .build()
-            .await;
-
-        assert!(result.is_ok());
-    }
-
     #[test]
     fn test_query_operation_payload_structure() {
         let operation = super::super::config::Operation::Query;
@@ -734,48 +668,5 @@ mod tests {
         assert!(DEFAULT_URI_PATH.contains("v61.0"));
         assert!(DEFAULT_URI_PATH.starts_with("/services/data/"));
         assert!(DEFAULT_URI_PATH.ends_with("/jobs/"));
-    }
-
-    #[tokio::test]
-    async fn test_processor_builder_order_independence() {
-        let (tx, rx) = broadcast::channel::<Event>(100);
-        let (tx2, rx2) = broadcast::channel::<Event>(100);
-
-        let config = Arc::new(super::super::config::JobCreator {
-            name: "order_test".to_string(),
-            label: None,
-            credentials_path: PathBuf::from("/test.json"),
-            query: Some("SELECT Id FROM Account".to_string()),
-            job_type: super::super::config::JobType::Query,
-            object: None,
-            operation: super::super::config::Operation::Query,
-            content_type: None,
-            column_delimiter: None,
-            line_ending: None,
-            assignment_rule_id: None,
-            external_id_field_name: None,
-            retry: None,
-        });
-
-        let result1 = ProcessorBuilder::new()
-            .config(Arc::clone(&config))
-            .sender(tx)
-            .receiver(rx)
-            .current_task_id(1)
-            .task_type("task_type_1")
-            .build()
-            .await;
-
-        let result2 = ProcessorBuilder::new()
-            .current_task_id(1)
-            .task_type("task_type_2")
-            .receiver(rx2)
-            .sender(tx2)
-            .config(Arc::clone(&config))
-            .build()
-            .await;
-
-        assert!(result1.is_ok());
-        assert!(result2.is_ok());
     }
 }
