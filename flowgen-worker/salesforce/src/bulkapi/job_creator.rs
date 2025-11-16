@@ -49,6 +49,12 @@ pub enum Error {
 
     #[error("missing salesforce instance URL")]
     NoSalesforceInstanceURL(),
+
+    #[error("Task failed after all retry attempts: {source}")]
+    RetryExhausted {
+        #[source]
+        source: Box<Error>,
+    },
 }
 
 /// Request payload for Salesforce bulk query job creation.
@@ -79,6 +85,8 @@ pub struct JobCreator {
     current_task_id: usize,
     /// Task type for event categorization and logging.
     task_type: &'static str,
+    /// Task execution context providing metadata and runtime configuration.
+    _task_context: Arc<flowgen_core::task::context::TaskContext>,
 }
 
 /// Event handler for processing individual job creation requests.
@@ -199,11 +207,29 @@ impl flowgen_core::task::runner::Runner for JobCreator {
 
     /// Main execution loop: listen for events, filter by task ID, spawn handlers.
     async fn run(mut self) -> Result<(), Self::Error> {
+        let retry_config =
+            flowgen_core::retry::RetryConfig::merge(&self._task_context.retry, &self.config.retry);
+
         // Initialize runner task.
-        let event_handler = match self.init().await {
+        let event_handler = match tokio_retry::Retry::spawn(retry_config.strategy(), || async {
+            match self.init().await {
+                Ok(handler) => Ok(handler),
+                Err(e) => {
+                    error!("{}", e);
+                    Err(e)
+                }
+            }
+        })
+        .await
+        {
             Ok(handler) => Arc::new(handler),
             Err(e) => {
-                error!("{}", e);
+                error!(
+                    "{}",
+                    Error::RetryExhausted {
+                        source: Box::new(e)
+                    }
+                );
                 return Ok(());
             }
         };
@@ -236,6 +262,7 @@ pub struct ProcessorBuilder {
     tx: Option<Sender<Event>>,
     rx: Option<Receiver<Event>>,
     current_task_id: usize,
+    task_context: Option<Arc<flowgen_core::task::context::TaskContext>>,
     task_type: Option<&'static str>,
 }
 
@@ -289,6 +316,9 @@ impl ProcessorBuilder {
                 .tx
                 .ok_or_else(|| Error::MissingRequiredAttribute("sender".to_string()))?,
             current_task_id: self.current_task_id,
+            _task_context: self
+                .task_context
+                .ok_or_else(|| Error::MissingRequiredAttribute("task_context".to_string()))?,
             task_type: self
                 .task_type
                 .ok_or_else(|| Error::MissingRequiredAttribute("task_type".to_string()))?,
@@ -300,9 +330,28 @@ impl ProcessorBuilder {
 mod tests {
     use super::*;
     use serde_json::json;
+    use serde_json::{Map, Value};
     use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::sync::broadcast;
+
+    /// Creates a mock TaskContext for testing.
+    fn create_mock_task_context() -> Arc<flowgen_core::task::context::TaskContext> {
+        let mut labels = Map::new();
+        labels.insert(
+            "description".to_string(),
+            Value::String("Clone Test".to_string()),
+        );
+        let task_manager = Arc::new(flowgen_core::task::manager::TaskManagerBuilder::new().build());
+        Arc::new(
+            flowgen_core::task::context::TaskContextBuilder::new()
+                .flow_name("test-flow".to_string())
+                .flow_labels(Some(labels))
+                .task_manager(task_manager)
+                .build()
+                .unwrap(),
+        )
+    }
 
     #[test]
     fn test_query_job_payload_serialization() {
@@ -395,6 +444,7 @@ mod tests {
             line_ending: Some(super::super::config::LineEnding::Lf),
             assignment_rule_id: None,
             external_id_field_name: None,
+            retry: None,
         });
 
         let builder = ProcessorBuilder::new().config(Arc::clone(&config));
@@ -451,6 +501,7 @@ mod tests {
             line_ending: None,
             assignment_rule_id: None,
             external_id_field_name: None,
+            retry: None,
         });
 
         let builder = ProcessorBuilder::new().config(config).sender(tx);
@@ -483,6 +534,7 @@ mod tests {
             line_ending: None,
             assignment_rule_id: None,
             external_id_field_name: None,
+            retry: None,
         });
 
         let builder = ProcessorBuilder::new().config(config).receiver(rx);
@@ -515,6 +567,7 @@ mod tests {
             line_ending: Some(super::super::config::LineEnding::Lf),
             assignment_rule_id: None,
             external_id_field_name: None,
+            retry: None,
         });
 
         let result = ProcessorBuilder::new()
@@ -548,6 +601,7 @@ mod tests {
             line_ending: Some(super::super::config::LineEnding::Crlf),
             assignment_rule_id: None,
             external_id_field_name: None,
+            retry: None,
         });
 
         let result = ProcessorBuilder::new()
@@ -659,6 +713,7 @@ mod tests {
             line_ending: None,
             assignment_rule_id: None,
             external_id_field_name: None,
+            retry: None,
         });
 
         let processor = JobCreator {
@@ -667,6 +722,7 @@ mod tests {
             rx,
             current_task_id: 5,
             task_type: "",
+            _task_context: create_mock_task_context(),
         };
 
         assert_eq!(processor.current_task_id, 5);
@@ -698,6 +754,7 @@ mod tests {
             line_ending: None,
             assignment_rule_id: None,
             external_id_field_name: None,
+            retry: None,
         });
 
         let result1 = ProcessorBuilder::new()

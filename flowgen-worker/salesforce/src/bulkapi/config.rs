@@ -81,6 +81,10 @@ pub struct JobCreator {
 
     /// External ID field name for upsert operations.
     pub external_id_field_name: Option<String>,
+
+    /// Optional retry configuration (overrides app-level retry config).
+    #[serde(default)]
+    pub retry: Option<flowgen_core::retry::RetryConfig>,
 }
 
 /// Salesforce Bulk API Job types.
@@ -255,6 +259,7 @@ mod tests {
             line_ending: Some(LineEnding::Crlf),
             assignment_rule_id: None,
             external_id_field_name: None,
+            retry: None,
         };
 
         assert_eq!(creator.operation, Operation::Query);
@@ -277,6 +282,7 @@ mod tests {
             line_ending: Some(LineEnding::Lf),
             assignment_rule_id: None,
             external_id_field_name: None,
+            retry: None,
         };
 
         assert_eq!(creator.operation, Operation::Insert);
@@ -299,6 +305,7 @@ mod tests {
             line_ending: Some(LineEnding::Lf),
             assignment_rule_id: None,
             external_id_field_name: Some("External_ID__c".to_string()),
+            retry: None,
         };
 
         assert_eq!(creator.operation, Operation::Upsert);
@@ -501,6 +508,7 @@ mod tests {
             line_ending: Some(LineEnding::Crlf),
             assignment_rule_id: Some("rule123".to_string()),
             external_id_field_name: None,
+            retry: None,
         };
 
         let json = serde_json::to_string(&creator).unwrap();
@@ -524,6 +532,7 @@ mod tests {
             line_ending: Some(LineEnding::Lf),
             assignment_rule_id: None,
             external_id_field_name: None,
+            retry: None,
         };
 
         let creator2 = creator1.clone();
@@ -575,6 +584,7 @@ mod tests {
             line_ending: Some(LineEnding::Lf),
             assignment_rule_id: Some("01Q5g000000abcdEAA".to_string()),
             external_id_field_name: None,
+            retry: None,
         };
 
         assert_eq!(
