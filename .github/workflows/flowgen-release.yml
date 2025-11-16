@@ -1,4 +1,4 @@
-name: Build and Release
+name: Release Flowgen
 
 on:
   push:
@@ -120,10 +120,6 @@ jobs:
             ## Changes in ${{ needs.detect-version.outputs.tag }}
 
             ${{ steps.changelog.outputs.changelog }}
-
-            ## Docker Image
-            ```bash
-            docker pull ghcr.io/${{ github.repository }}:${{ needs.detect-version.outputs.tag }}
-            ```
           draft: false
           prerelease: false
+          

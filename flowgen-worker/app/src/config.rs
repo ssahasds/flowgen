@@ -109,6 +109,8 @@ pub struct AppConfig {
     pub host: Option<HostOptions>,
     /// Event channel buffer size for all flows (defaults to 10000 if not specified).
     pub event_buffer_size: Option<usize>,
+    /// Optional app-level retry configuration (can be overridden per task).
+    pub retry: Option<flowgen_core::retry::RetryConfig>,
 }
 
 /// Cache type for storage backend.
@@ -306,6 +308,7 @@ mod tests {
             http_server: None,
             host: None,
             event_buffer_size: None,
+            retry: None,
         };
 
         assert!(app_config.cache.is_some());
@@ -313,6 +316,7 @@ mod tests {
         assert!(app_config.flows.dir.is_some());
         assert!(app_config.http_server.is_none());
         assert!(app_config.host.is_none());
+        assert!(app_config.retry.is_none());
     }
 
     #[test]
@@ -325,6 +329,7 @@ mod tests {
             http_server: None,
             host: None,
             event_buffer_size: None,
+            retry: None,
         };
 
         assert!(app_config.cache.is_none());
@@ -346,6 +351,7 @@ mod tests {
             http_server: None,
             host: None,
             event_buffer_size: None,
+            retry: None,
         };
 
         let serialized = serde_json::to_string(&app_config).unwrap();
@@ -366,6 +372,7 @@ mod tests {
             http_server: None,
             host: None,
             event_buffer_size: None,
+            retry: None,
         };
 
         let cloned = app_config.clone();
@@ -516,6 +523,7 @@ mod tests {
             }),
             host: None,
             event_buffer_size: None,
+            retry: None,
         };
 
         assert!(app_config.http_server.is_some());
