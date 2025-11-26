@@ -136,7 +136,7 @@ impl EventHandler {
             .await
             .map_err(|e| Error::Reqwest { source: e })?;
 
-        let data = json!(resp);
+        let data: serde_json::Value = serde_json::from_str(&resp).unwrap_or_else(|_| json!(resp));
 
         // Create and emit response event.
         let e = EventBuilder::new()
