@@ -1,5 +1,3 @@
-use apache_avro::types::Value;
-use apache_avro::{from_avro_datum, Schema};
 use arrow::csv::reader::Format;
 use flowgen_core::event::{Event, EventBuilder, EventData, SenderExt};
 use oauth2::TokenResponse;
@@ -87,6 +85,8 @@ pub struct EventHandler {
     tx: Sender<Event>,
     /// Task identifier for event correlation.
     current_task_id: usize,
+    /// Processor configuration.
+    config: Arc<super::config::JobRetriever>,
     /// SFDC client.
     sfdc_client: salesforce_core::client::Client,
     /// Task type for event categorization and logging.
@@ -97,117 +97,97 @@ impl EventHandler {
     /// Processes job retrieval: extract job info, download CSV, convert to Arrow, emit events.
     async fn handle(&self, event: Event) -> Result<(), Error> {
         // Process only Avro events with job completion data.
-        if let EventData::Avro(value) = &event.data {
-            // Parse Avro schema from event.
-            let schema =
-                Schema::parse_str(&value.schema).map_err(|e| Error::ParseSchema { source: e })?;
+        if let EventData::Json(value) = &event.data {
+            let instance_url = self
+                .sfdc_client
+                .instance_url
+                .clone()
+                .ok_or_else(Error::NoSalesforceInstanceURL)?;
 
-            // Deserialize Avro binary data.
-            let value = from_avro_datum(&schema, &mut value.raw_bytes.as_slice(), None)
-                .map_err(|e| Error::ParseSchema { source: e })?;
+            // Create HTTP request to download CSV results.
+            let mut client = self.client.get(format!(
+                "{}{}",
+                instance_url,
+                value.get("ResultUrl").unwrap()
+            ));
 
-            // Process deserialized Avro record.
-            if let Value::Record(fields) = value {
-                // Extract ResultUrl containing CSV download URL.
-                if let Some((_, Value::Union(_, inner_value))) =
-                    fields.iter().find(|(name, _)| name == "ResultUrl")
-                {
-                    if let Value::String(result_url) = &**inner_value {
-                        let instance_url = self
-                            .sfdc_client
-                            .instance_url
-                            .clone()
-                            .ok_or_else(Error::NoSalesforceInstanceURL)?;
+            let token_result = self
+                .sfdc_client
+                .token_result
+                .clone()
+                .ok_or_else(Error::NoSalesforceAuthToken)?;
 
-                        // Create HTTP request to download CSV results.
-                        let mut client = self.client.get(format!("{}{}", instance_url, result_url));
+            client = client.bearer_auth(token_result.access_token().secret());
 
-                        let token_result = self
-                            .sfdc_client
-                            .token_result
-                            .clone()
-                            .ok_or_else(Error::NoSalesforceAuthToken)?;
+            // Download CSV result data.
+            let resp = client
+                .send()
+                .await
+                .map_err(|e| Error::Reqwest { source: e })?
+                .bytes()
+                .await
+                .map_err(|e| Error::Reqwest { source: e })?;
 
-                        client = client.bearer_auth(token_result.access_token().secret());
+            // Write CSV to temporary file.
+            let file_path = "output.csv";
+            let mut file = File::create(file_path).unwrap();
+            file.write_all(&resp).map_err(|e| Error::IO { source: e })?;
 
-                        // Download CSV result data.
-                        let resp = client
-                            .send()
-                            .await
-                            .map_err(|e| Error::Reqwest { source: e })?
-                            .bytes()
-                            .await
-                            .map_err(|e| Error::Reqwest { source: e })?;
+            // Reopen file for reading and schema inference.
+            let mut file = File::open(file_path).map_err(|e| Error::IO { source: e })?;
 
-                        // Write CSV to temporary file.
-                        let file_path = "output.csv";
-                        let mut file = File::create(file_path).unwrap();
-                        file.write_all(&resp).map_err(|e| Error::IO { source: e })?;
+            // Infer CSV schema from first 100 rows.
+            let (schema, _) = Format::default()
+                .with_header(true)
+                .infer_schema(&file, Some(100))
+                .map_err(|e| Error::Arrow { source: e })?;
 
-                        // Reopen file for reading and schema inference.
-                        let mut file =
-                            File::open(file_path).map_err(|e| Error::IO { source: e })?;
+            // Reset file pointer to beginning.
+            file.rewind().map_err(|e| Error::IO { source: e })?;
 
-                        // Infer CSV schema from first 100 rows.
-                        let (schema, _) = Format::default()
-                            .with_header(true)
-                            .infer_schema(&file, Some(100))
-                            .map_err(|e| Error::Arrow { source: e })?;
+            // Create Arrow CSV reader.
+            let csv = arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
+                .with_header(true)
+                .with_batch_size(100)
+                .build(&file)
+                .map_err(|e| Error::Arrow { source: e })?;
 
-                        // Reset file pointer to beginning.
-                        file.rewind().map_err(|e| Error::IO { source: e })?;
+            // Request job metadata to get object type.
+            let mut client = self.client.get(format!(
+                "{}{}{}{}",
+                instance_url,
+                crate::bulkapi::config::DEFAULT_URI_PATH,
+                self.config.job_type.as_str().to_owned() + "/",
+                value.get("job_id").unwrap()
+            ));
 
-                        // Create Arrow CSV reader.
-                        let csv = arrow::csv::ReaderBuilder::new(Arc::new(schema.clone()))
-                            .with_header(true)
-                            .with_batch_size(100)
-                            .build(&file)
-                            .map_err(|e| Error::Arrow { source: e })?;
+            client = client.bearer_auth(token_result.access_token().secret());
 
-                        // Extract JobIdentifier for metadata retrieval.
-                        if let Some((_, Value::String(job_id))) =
-                            fields.iter().find(|(name, _)| name == "JobIdentifier")
-                        {
-                            // Request job metadata to get object type.
-                            let mut client = self.client.get(format!(
-                                "{}{}{}{}",
-                                instance_url,
-                                crate::bulkapi::config::DEFAULT_URI_PATH,
-                                "query/",
-                                job_id
-                            ));
+            // Retrieve job metadata.
+            let resp = client
+                .send()
+                .await
+                .map_err(|e| Error::Reqwest { source: e })?
+                .text()
+                .await
+                .map_err(|e| Error::Reqwest { source: e })?;
 
-                            client = client.bearer_auth(token_result.access_token().secret());
+            let job_metadata: JobResponse =
+                serde_json::from_str(&resp).map_err(|e| Error::SerdeJson { source: e })?;
 
-                            // Retrieve job metadata.
-                            let resp = client
-                                .send()
-                                .await
-                                .map_err(|e| Error::Reqwest { source: e })?
-                                .text()
-                                .await
-                                .map_err(|e| Error::Reqwest { source: e })?;
-
-                            let job_metadata: JobResponse = serde_json::from_str(&resp)
-                                .map_err(|e| Error::SerdeJson { source: e })?;
-
-                            // Process each Arrow record batch and emit as events.
-                            for data in csv {
-                                let e = EventBuilder::new()
-                                    .data(EventData::ArrowRecordBatch(
-                                        data.map_err(|e| Error::Arrow { source: e })?,
-                                    ))
-                                    .subject(job_metadata.object.to_lowercase())
-                                    .task_id(self.current_task_id)
-                                    .task_type(self.task_type)
-                                    .build()?;
-                                self.tx
-                                    .send_with_logging(e)
-                                    .map_err(|e| Error::SendMessage { source: e })?;
-                            }
-                        }
-                    }
-                }
+            // Process each Arrow record batch and emit as events.
+            for data in csv {
+                let e = EventBuilder::new()
+                    .data(EventData::ArrowRecordBatch(
+                        data.map_err(|e| Error::Arrow { source: e })?,
+                    ))
+                    .subject(job_metadata.object.to_lowercase())
+                    .task_id(self.current_task_id)
+                    .task_type(self.task_type)
+                    .build()?;
+                self.tx
+                    .send_with_logging(e)
+                    .map_err(|e| Error::SendMessage { source: e })?;
             }
         }
         Ok(())
@@ -246,6 +226,7 @@ impl flowgen_core::task::runner::Runner for JobRetriever {
             .await?;
 
         let event_handler = EventHandler {
+            config: Arc::clone(&self.config),
             current_task_id: self.task_id,
             tx: self.tx.clone(),
             client,
