@@ -72,7 +72,10 @@ pub enum Error {
     LeadershipChannelClosed,
     /// Error in Salesforce Bulk API Job Creator task.
     #[error(transparent)]
-    SalesforceBulkApiError(#[from] flowgen_salesforce::bulkapi::job_creator::Error),
+    SalesforceBulkApiJobCreatorError(#[from] flowgen_salesforce::bulkapi::job_creator::Error),
+    /// Error in Salesforce Bulk API Job Retriever task.
+    #[error(transparent)]
+    SalesforceBulkApiJobRetrieverError(#[from] flowgen_salesforce::bulkapi::job_retriever::Error),
 }
 
 pub struct Flow {
@@ -672,6 +675,30 @@ async fn spawn_tasks(
                 );
                 background_tasks.push(task);
             }
+
+            TaskType::salesforce_bulkapi_job_retriever(config) => {
+                let config = Arc::new(config.to_owned());
+                let rx = tx.subscribe();
+                let tx = tx.clone();
+                let span = tracing::Span::current();
+                let task: JoinHandle<Result<(), Error>> = tokio::spawn(
+                    async move {
+                        flowgen_salesforce::bulkapi::job_retriever::JobRetrieverBuilder::new()
+                            .config(config)
+                            .receiver(rx)
+                            .sender(tx)
+                            .task_id(i)
+                            .build()
+                            .await?
+                            .run()
+                            .await?;
+                        Ok(())
+                    }
+                    .instrument(span),
+                );
+                background_tasks.push(task);
+            }
+
             TaskType::object_store_reader(config) => {
                 let config = Arc::new(config.to_owned());
                 let rx = tx.subscribe();

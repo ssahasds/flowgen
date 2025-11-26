@@ -28,9 +28,12 @@ use std::path::PathBuf;
 ///     }
 ///  }
 /// ```
+pub const DEFAULT_URI_PATH: &str = "/services/data/v61.0/jobs/";
 /// Configuration for retrieving existing Salesforce bulk jobs.
 #[derive(PartialEq, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct JobRetriever {
+    /// Unique task identifier.
+    pub name: String,
     /// Path to Salesforce authentication credentials.
     pub credentials_path: PathBuf,
     /// Salesforce Job Type like query, ingest.
@@ -168,6 +171,7 @@ mod tests {
     #[test]
     fn test_job_retriever_creation() {
         let retriever = JobRetriever {
+            name: "test_job_retriever".to_string(),
             credentials_path: PathBuf::from("/path/to/creds.json"),
             job_type: JobType::Query,
         };
@@ -180,6 +184,7 @@ mod tests {
     #[test]
     fn test_job_retriever_serialization() {
         let retriever = JobRetriever {
+            name: "test_job_retriever".to_string(),
             credentials_path: PathBuf::from("/test/path.json"),
             job_type: JobType::Query,
         };
@@ -498,6 +503,7 @@ mod tests {
     #[test]
     fn test_job_retriever_clone() {
         let retriever1 = JobRetriever {
+            name: "test_job_retriever".to_string(),
             credentials_path: PathBuf::from("/test.json"),
             job_type: JobType::Query,
         };
@@ -579,5 +585,12 @@ mod tests {
         let retriever = JobRetriever::default();
         let debug_str = format!("{retriever:?}");
         assert!(debug_str.contains("JobRetriever"));
+    }
+
+    #[test]
+    fn test_uri_path_version() {
+        assert!(DEFAULT_URI_PATH.contains("v61.0"));
+        assert!(DEFAULT_URI_PATH.starts_with("/services/data/"));
+        assert!(DEFAULT_URI_PATH.ends_with("/jobs/"));
     }
 }
